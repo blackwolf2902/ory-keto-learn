@@ -1,0 +1,132 @@
+// Prisma Schema for Ory Keto Learning Project
+// This stores application data. Authorization data is in Ory Keto.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// USER MODEL
+// ============================================
+// Represents users in our system.
+// User authentication is simulated via headers.
+// Authorization is handled by Ory Keto.
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations (application-level, not authorization)
+  ownedDocuments Document[] @relation("DocumentOwner")
+  ownedFolders   Folder[]   @relation("FolderOwner")
+  groups         GroupMember[]
+
+  @@map("users")
+}
+
+// ============================================
+// GROUP MODEL
+// ============================================
+// Groups allow team-based access control.
+// Group membership is ALSO stored in Keto for permission checks.
+model Group {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members GroupMember[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  groupId   String   @map("group_id")
+  role      String   @default("member") // member, admin
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("group_members")
+}
+
+// ============================================
+// FOLDER MODEL
+// ============================================
+// Folders organize documents hierarchically.
+// Folder permissions in Keto can inherit from parent folders.
+model Folder {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  parentId    String?  @map("parent_id")
+  ownerId     String   @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Self-referential relation for hierarchy
+  parent   Folder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children Folder[] @relation("FolderHierarchy")
+
+  // Owner relation
+  owner User @relation("FolderOwner", fields: [ownerId], references: [id])
+
+  // Documents in this folder
+  documents Document[]
+
+  @@map("folders")
+}
+
+// ============================================
+// DOCUMENT MODEL
+// ============================================
+// Documents are the protected resources.
+// All access checks happen through Ory Keto.
+model Document {
+  id        String   @id @default(uuid())
+  title     String
+  content   String?
+  folderId  String?  @map("folder_id")
+  ownerId   String   @map("owner_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  folder Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  owner  User    @relation("DocumentOwner", fields: [ownerId], references: [id])
+
+  @@map("documents")
+}
+
+// ============================================
+// EVENT STORE
+// ============================================
+// Stores all domain events for event sourcing.
+// Events are immutable - never update or delete.
+model Event {
+  id            String   @id @default(uuid())
+  eventType     String   @map("event_type")
+  aggregateType String   @map("aggregate_type")
+  aggregateId   String   @map("aggregate_id")
+  version       Int
+  userId        String   @map("user_id")
+  payload       Json
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([aggregateId])
+  @@index([aggregateType, eventType])
+  @@index([createdAt])
+  @@map("events")
+}

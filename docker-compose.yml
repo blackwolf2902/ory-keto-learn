@@ -1,0 +1,50 @@
+services:
+  # PostgreSQL for both Keto and Application
+  postgres:
+    image: postgres:15-alpine
+    container_name: ory-keto-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: keto
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Ory Keto - Permission/Authorization Service
+  keto-migrate:
+    image: oryd/keto:v0.12.0
+    container_name: ory-keto-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSN: postgres://postgres:postgres@postgres:5432/keto?sslmode=disable
+    volumes:
+      - ./keto:/home/ory
+    command: migrate up -y --config /home/ory/keto.yml
+
+  keto:
+    image: oryd/keto:v0.12.0
+    container_name: ory-keto
+    depends_on:
+      keto-migrate:
+        condition: service_completed_successfully
+    environment:
+      DSN: postgres://postgres:postgres@postgres:5432/keto?sslmode=disable
+    ports:
+      - "4466:4466"  # Read API
+      - "4467:4467"  # Write API
+    volumes:
+      - ./keto:/home/ory
+    command: serve --config /home/ory/keto.yml
+
+volumes:
+  postgres_data:

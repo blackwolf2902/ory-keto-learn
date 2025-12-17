@@ -1,0 +1,66 @@
+/**
+ * Ory Keto Namespace Definitions (OPL - Ory Permission Language)
+ */
+
+import { Namespace, Context } from "@ory/keto-namespace-types"
+
+class User implements Namespace { }
+
+class Group implements Namespace {
+    related: {
+        member: User[]
+    }
+}
+
+class Folder implements Namespace {
+    related: {
+        owner: User[]
+        editor: (User | SubjectSet<Group, "member">)[]
+        viewer: (User | SubjectSet<Group, "member">)[]
+        parent: Folder[]
+    }
+
+    permits = {
+        view: (ctx: Context) =>
+            this.related.viewer.includes(ctx.subject) ||
+            this.related.editor.includes(ctx.subject) ||
+            this.related.owner.includes(ctx.subject) ||
+            this.related.parent.traverse((p) => p.permits.view(ctx)),
+
+        edit: (ctx: Context) =>
+            this.related.editor.includes(ctx.subject) ||
+            this.related.owner.includes(ctx.subject) ||
+            this.related.parent.traverse((p) => p.permits.edit(ctx)),
+
+        delete: (ctx: Context) =>
+            this.related.owner.includes(ctx.subject)
+    }
+}
+
+class Document implements Namespace {
+    related: {
+        owner: User[]
+        editor: (User | SubjectSet<Group, "member">)[]
+        viewer: (User | SubjectSet<Group, "member">)[]
+        parent: Folder[]
+    }
+
+    permits = {
+        view: (ctx: Context) =>
+            this.related.viewer.includes(ctx.subject) ||
+            this.related.editor.includes(ctx.subject) ||
+            this.related.owner.includes(ctx.subject) ||
+            this.related.parent.traverse((p) => p.permits.view(ctx)),
+
+        edit: (ctx: Context) =>
+            this.related.editor.includes(ctx.subject) ||
+            this.related.owner.includes(ctx.subject) ||
+            this.related.parent.traverse((p) => p.permits.edit(ctx)),
+
+        delete: (ctx: Context) =>
+            this.related.owner.includes(ctx.subject),
+
+        share: (ctx: Context) =>
+            this.related.owner.includes(ctx.subject)
+    }
+}
