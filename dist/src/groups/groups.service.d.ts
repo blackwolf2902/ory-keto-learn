@@ -1,90 +1,111 @@
-import { PrismaService } from '../prisma.service';
+import { DrizzleService } from '../drizzle/drizzle.service';
 import { KetoService } from '../keto/keto.service';
 import { EventPublisherService } from '../events/event-publisher.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { AddMemberDto } from './dto/add-member.dto';
 export declare class GroupsService {
-    private readonly prisma;
+    private readonly drizzle;
     private readonly ketoService;
     private readonly eventPublisher;
-    constructor(prisma: PrismaService, ketoService: KetoService, eventPublisher: EventPublisherService);
+    constructor(drizzle: DrizzleService, ketoService: KetoService, eventPublisher: EventPublisherService);
     create(createGroupDto: CreateGroupDto, userId?: string): Promise<{
-        description: string | null;
-        name: string;
         id: string;
+        name: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string | null;
+        creatorId: string | null;
     }>;
     addMember(groupId: string, addMemberDto: AddMemberDto): Promise<{
         user: {
+            id: string;
             email: string;
             name: string;
-            id: string;
             createdAt: Date;
             updatedAt: Date;
         };
         group: {
-            description: string | null;
-            name: string;
             id: string;
+            name: string;
+            description: string | null;
+            creatorId: string | null;
             createdAt: Date;
             updatedAt: Date;
         };
-    } & {
         id: string;
         createdAt: Date;
         userId: string;
-        role: string;
         groupId: string;
+        role: string;
     }>;
     removeMember(groupId: string, userId: string): Promise<{
         success: boolean;
     }>;
-    findAll(): Promise<({
-        members: ({
-            user: {
-                email: string;
-                name: string;
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-            };
-        } & {
+    findAll(): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string | null;
+        creatorId: string | null;
+        members: {
             id: string;
             createdAt: Date;
             userId: string;
-            role: string;
             groupId: string;
-        })[];
-    } & {
-        description: string | null;
-        name: string;
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-    })[]>;
-    findOne(id: string): Promise<({
-        members: ({
+            role: string;
             user: {
+                id: string;
                 email: string;
                 name: string;
-                id: string;
                 createdAt: Date;
                 updatedAt: Date;
             };
-        } & {
+        }[];
+    }[]>;
+    findAllByCreator(creatorId: string): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string | null;
+        creatorId: string | null;
+        members: {
             id: string;
             createdAt: Date;
             userId: string;
-            role: string;
             groupId: string;
-        })[];
-    } & {
-        description: string | null;
-        name: string;
+            role: string;
+            user: {
+                id: string;
+                email: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+            };
+        }[];
+    }[]>;
+    findOne(id: string): Promise<{
         id: string;
+        name: string;
         createdAt: Date;
         updatedAt: Date;
-    }) | null>;
+        description: string | null;
+        creatorId: string | null;
+        members: {
+            id: string;
+            createdAt: Date;
+            userId: string;
+            groupId: string;
+            role: string;
+            user: {
+                id: string;
+                email: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+            };
+        }[];
+    } | undefined>;
     getMembersFromKeto(groupId: string): Promise<string[]>;
 }

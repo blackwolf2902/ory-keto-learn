@@ -11,23 +11,27 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GroupsService = void 0;
 const common_1 = require("@nestjs/common");
-const prisma_service_1 = require("../prisma.service");
+const drizzle_orm_1 = require("drizzle-orm");
+const drizzle_service_1 = require("../drizzle/drizzle.service");
+const schema_1 = require("../drizzle/schema");
 const keto_service_1 = require("../keto/keto.service");
 const event_publisher_service_1 = require("../events/event-publisher.service");
 const group_events_1 = require("./events/group.events");
 let GroupsService = class GroupsService {
-    prisma;
+    drizzle;
     ketoService;
     eventPublisher;
-    constructor(prisma, ketoService, eventPublisher) {
-        this.prisma = prisma;
+    constructor(drizzle, ketoService, eventPublisher) {
+        this.drizzle = drizzle;
         this.ketoService = ketoService;
         this.eventPublisher = eventPublisher;
     }
     async create(createGroupDto, userId) {
-        const group = await this.prisma.group.create({
-            data: createGroupDto,
-        });
+        const [group] = await this.drizzle.db.insert(schema_1.groups).values({
+            name: createGroupDto.name,
+            description: createGroupDto.description,
+            creatorId: userId,
+        }).returning();
         if (userId) {
             await this.eventPublisher.publish((0, group_events_1.createGroupCreatedEvent)(group.id, userId, {
                 name: group.name,
@@ -37,20 +41,17 @@ let GroupsService = class GroupsService {
         return group;
     }
     async addMember(groupId, addMemberDto) {
-        const group = await this.prisma.group.findUnique({ where: { id: groupId } });
+        const [group] = await this.drizzle.db.select().from(schema_1.groups).where((0, drizzle_orm_1.eq)(schema_1.groups.id, groupId));
         if (!group)
             throw new common_1.NotFoundException('Group not found');
-        const user = await this.prisma.user.findUnique({ where: { id: addMemberDto.userId } });
+        const [user] = await this.drizzle.db.select().from(schema_1.users).where((0, drizzle_orm_1.eq)(schema_1.users.id, addMemberDto.userId));
         if (!user)
             throw new common_1.NotFoundException('User not found');
-        const membership = await this.prisma.groupMember.create({
-            data: {
-                groupId,
-                userId: addMemberDto.userId,
-                role: addMemberDto.role || 'member',
-            },
-            include: { user: true, group: true },
-        });
+        const [membership] = await this.drizzle.db.insert(schema_1.groupMembers).values({
+            groupId,
+            userId: addMemberDto.userId,
+            role: addMemberDto.role || 'member',
+        }).returning();
         await this.ketoService.createRelation({
             namespace: 'Group',
             object: groupId,
@@ -61,14 +62,10 @@ let GroupsService = class GroupsService {
             memberId: addMemberDto.userId,
             role: addMemberDto.role || 'member',
         }));
-        return membership;
+        return { ...membership, user, group };
     }
     async removeMember(groupId, userId) {
-        await this.prisma.groupMember.delete({
-            where: {
-                userId_groupId: { userId, groupId },
-            },
-        });
+        await this.drizzle.db.delete(schema_1.groupMembers).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.groupMembers.userId, userId), (0, drizzle_orm_1.eq)(schema_1.groupMembers.groupId, groupId)));
         await this.ketoService.deleteRelation({
             namespace: 'Group',
             object: groupId,
@@ -81,20 +78,30 @@ let GroupsService = class GroupsService {
         return { success: true };
     }
     async findAll() {
-        return this.prisma.group.findMany({
-            include: {
+        return this.drizzle.db.query.groups.findMany({
+            with: {
                 members: {
-                    include: { user: true },
+                    with: { user: true },
+                },
+            },
+        });
+    }
+    async findAllByCreator(creatorId) {
+        return this.drizzle.db.query.groups.findMany({
+            where: (0, drizzle_orm_1.eq)(schema_1.groups.creatorId, creatorId),
+            with: {
+                members: {
+                    with: { user: true },
                 },
             },
         });
     }
     async findOne(id) {
-        return this.prisma.group.findUnique({
-            where: { id },
-            include: {
+        return this.drizzle.db.query.groups.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.groups.id, id),
+            with: {
                 members: {
-                    include: { user: true },
+                    with: { user: true },
                 },
             },
         });
@@ -110,7 +117,7 @@ let GroupsService = class GroupsService {
 exports.GroupsService = GroupsService;
 exports.GroupsService = GroupsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+    __metadata("design:paramtypes", [drizzle_service_1.DrizzleService,
         keto_service_1.KetoService,
         event_publisher_service_1.EventPublisherService])
 ], GroupsService);

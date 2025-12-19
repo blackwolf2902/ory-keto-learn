@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from '../prisma.service';
+import { eq } from 'drizzle-orm';
+import { DrizzleService } from '../drizzle/drizzle.service';
+import { folders, users } from '../drizzle/schema';
 import { KetoService } from '../keto/keto.service';
 import { EventPublisherService } from '../events/event-publisher.service';
 import { CreateFolderDto } from './dto/create-folder.dto';
@@ -15,46 +17,29 @@ import {
  * ============================================
  * FOLDERS SERVICE - Hierarchical Permissions
  * ============================================
- * 
- * CONCEPT: Permission Inheritance
- * 
- * Folders create a hierarchy where permissions flow DOWN:
- * 
- *   /projects          (Alice: owner)
- *     /frontend        (inherits from parent)
- *       spec.md        (inherits from parent folders)
- * 
- * If Alice has "view" on /projects, she also has "view" on:
- * - /projects/frontend
- * - /projects/frontend/spec.md
- * 
- * This is achieved through PARENT RELATIONS:
- *   Folder:frontend#parent@Folder:projects
- *   Document:spec.md#parent@Folder:frontend
  */
 @Injectable()
 export class FoldersService {
     constructor(
-        private readonly prisma: PrismaService,
+        private readonly drizzle: DrizzleService,
         private readonly ketoService: KetoService,
         private readonly eventPublisher: EventPublisherService,
     ) { }
 
     /**
      * Create a new folder
-     * 
-     * If folder has a parent, creates inheritance relation:
-     *   Folder:{childId}#parent@Folder:{parentId}
      */
     async create(createFolderDto: CreateFolderDto, userId: string) {
-        const folder = await this.prisma.folder.create({
-            data: {
-                name: createFolderDto.name,
-                description: createFolderDto.description,
-                parentId: createFolderDto.parentId,
-                ownerId: userId,
-            },
-            include: { parent: true, owner: true },
+        const [folder] = await this.drizzle.db.insert(folders).values({
+            name: createFolderDto.name,
+            description: createFolderDto.description,
+            parentId: createFolderDto.parentId,
+            ownerId: userId,
+        }).returning();
+
+        const result = await this.drizzle.db.query.folders.findFirst({
+            where: eq(folders.id, folder.id),
+            with: { parent: true, owner: true },
         });
 
         // Create owner relation
@@ -67,7 +52,6 @@ export class FoldersService {
 
         // Create parent relation for inheritance (if has parent)
         if (folder.parentId) {
-            // Viewers of parent folder become viewers of this folder
             await this.ketoService.createRelation({
                 namespace: 'Folder',
                 object: folder.id,
@@ -89,24 +73,19 @@ export class FoldersService {
             }),
         );
 
-        return folder;
+        return result;
     }
 
     /**
      * Share a folder with user or group
-     * 
-     * Sharing a folder also grants access to all nested content!
      */
     async share(folderId: string, shareDto: ShareFolderDto, requesterId: string) {
-        const folder = await this.prisma.folder.findUnique({
-            where: { id: folderId },
-        });
+        const [folder] = await this.drizzle.db.select().from(folders).where(eq(folders.id, folderId));
 
         if (!folder) {
             throw new NotFoundException('Folder not found');
         }
 
-        // Verify requester is owner
         const canShare = await this.ketoService.checkPermission({
             namespace: 'Folder',
             object: folderId,
@@ -126,7 +105,6 @@ export class FoldersService {
                 subjectId: `User:${shareDto.userId}`,
             });
 
-            // EVENT SOURCING: Record folder shared with user
             await this.eventPublisher.publish(
                 createFolderSharedEvent(folderId, requesterId, {
                     targetType: 'user',
@@ -149,7 +127,6 @@ export class FoldersService {
                 subjectSet: this.ketoService.groupMembersSubjectSet(shareDto.groupId),
             });
 
-            // EVENT SOURCING: Record folder shared with group
             await this.eventPublisher.publish(
                 createFolderSharedEvent(folderId, requesterId, {
                     targetType: 'group',
@@ -170,8 +147,24 @@ export class FoldersService {
     }
 
     async findAll() {
-        return this.prisma.folder.findMany({
-            include: {
+        return this.drizzle.db.query.folders.findMany({
+            with: {
+                parent: true,
+                children: true,
+                documents: true,
+                owner: true,
+            },
+        });
+    }
+
+    /**
+     * Get folders owned by a specific user
+     * SESSION ISOLATION: Users only see their own folders
+     */
+    async findAllByOwner(ownerId: string) {
+        return this.drizzle.db.query.folders.findMany({
+            where: eq(folders.ownerId, ownerId),
+            with: {
                 parent: true,
                 children: true,
                 documents: true,
@@ -181,9 +174,9 @@ export class FoldersService {
     }
 
     async findOne(id: string) {
-        const folder = await this.prisma.folder.findUnique({
-            where: { id },
-            include: {
+        const folder = await this.drizzle.db.query.folders.findFirst({
+            where: eq(folders.id, id),
+            with: {
                 parent: true,
                 children: true,
                 documents: true,
@@ -202,7 +195,6 @@ export class FoldersService {
      * Revoke access from a user or group
      */
     async unshare(folderId: string, shareDto: ShareFolderDto, requesterId: string) {
-        // Verify requester can share (must be owner)
         const canShare = await this.ketoService.checkPermission({
             namespace: 'Folder',
             object: folderId,
@@ -222,7 +214,6 @@ export class FoldersService {
                 subjectId: `User:${shareDto.userId}`,
             });
 
-            // EVENT SOURCING: Record access revoked from user
             await this.eventPublisher.publish(
                 createFolderUnsharedEvent(folderId, requesterId, {
                     targetType: 'user',
@@ -238,7 +229,6 @@ export class FoldersService {
                 subjectSet: this.ketoService.groupMembersSubjectSet(shareDto.groupId),
             });
 
-            // EVENT SOURCING: Record access revoked from group
             await this.eventPublisher.publish(
                 createFolderUnsharedEvent(folderId, requesterId, {
                     targetType: 'group',
@@ -257,14 +247,9 @@ export class FoldersService {
 
     /**
      * Get who has access to a folder
-     * 
-     * KETO INTEGRATION - Permission Expansion:
-     * Uses the expand API to list all subjects with a permission.
      */
     async getAccessList(folderId: string) {
-        const folder = await this.prisma.folder.findUnique({
-            where: { id: folderId },
-        });
+        const [folder] = await this.drizzle.db.select().from(folders).where(eq(folders.id, folderId));
 
         if (!folder) {
             throw new NotFoundException('Folder not found');
@@ -308,9 +293,20 @@ export class FoldersService {
         };
     }
 
-    async remove(id: string) {
+    async remove(id: string, userId?: string) {
+        const [folder] = await this.drizzle.db.select().from(folders).where(eq(folders.id, id));
+
         await this.ketoService.deleteAllRelationsForObject('Folder', id);
-        await this.prisma.folder.delete({ where: { id } });
+        await this.drizzle.db.delete(folders).where(eq(folders.id, id));
+
+        if (userId && folder) {
+            await this.eventPublisher.publish(
+                createFolderDeletedEvent(id, userId, {
+                    name: folder.name,
+                }),
+            );
+        }
+
         return { success: true };
     }
 }

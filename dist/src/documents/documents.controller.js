@@ -21,37 +21,42 @@ const update_document_dto_1 = require("./dto/update-document.dto");
 const share_document_dto_1 = require("./dto/share-document.dto");
 const keto_guard_1 = require("../common/guards/keto.guard");
 const permission_decorator_1 = require("../common/decorators/permission.decorator");
+const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 let DocumentsController = class DocumentsController {
     documentsService;
     constructor(documentsService) {
         this.documentsService = documentsService;
     }
-    create(createDocumentDto, userId) {
-        return this.documentsService.create(createDocumentDto, userId);
+    create(createDocumentDto, user) {
+        return this.documentsService.create(createDocumentDto, user.id);
     }
-    findAll() {
-        return this.documentsService.findAll();
+    findAll(user) {
+        return this.documentsService.findAllByOwner(user.id);
     }
     findOne(id) {
         return this.documentsService.findOne(id);
     }
-    update(id, updateDocumentDto) {
-        return this.documentsService.update(id, updateDocumentDto);
+    update(id, updateDocumentDto, user) {
+        return this.documentsService.update(id, updateDocumentDto, user.id);
     }
-    remove(id) {
-        return this.documentsService.remove(id);
+    remove(id, user) {
+        return this.documentsService.remove(id, user.id);
     }
-    share(id, shareDto, userId) {
-        return this.documentsService.share(id, shareDto, userId);
+    share(id, shareDto, user) {
+        return this.documentsService.share(id, shareDto, user.id);
     }
-    unshare(id, shareDto, userId) {
-        return this.documentsService.unshare(id, shareDto, userId);
+    unshare(id, shareDto, user) {
+        return this.documentsService.unshare(id, shareDto, user.id);
     }
     getAccessList(id) {
         return this.documentsService.getAccessList(id);
     }
-    checkAccess(id, relation, userId) {
-        return this.documentsService.checkAccess(id, userId, relation);
+    checkAccess(id, relation, userId, currentUser) {
+        const userIdToCheck = userId || currentUser?.id;
+        if (!userIdToCheck) {
+            return { allowed: false, check: 'No user specified', error: 'Missing userId' };
+        }
+        return this.documentsService.checkAccess(id, userIdToCheck, relation);
     }
 };
 exports.DocumentsController = DocumentsController;
@@ -63,17 +68,18 @@ __decorate([
         description: 'Creates document and assigns creator as owner in Keto'
     }),
     __param(0, (0, common_1.Body)()),
-    __param(1, (0, common_1.Headers)('x-user-id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_document_dto_1.CreateDocumentDto, String]),
+    __metadata("design:paramtypes", [create_document_dto_1.CreateDocumentDto, Object]),
     __metadata("design:returntype", void 0)
 ], DocumentsController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)(),
     (0, permission_decorator_1.SkipPermissionCheck)(),
-    (0, swagger_1.ApiOperation)({ summary: 'Get all documents' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Get all documents (filtered by current user)' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], DocumentsController.prototype, "findAll", null);
 __decorate([
@@ -107,8 +113,9 @@ __decorate([
     }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, update_document_dto_1.UpdateDocumentDto]),
+    __metadata("design:paramtypes", [String, update_document_dto_1.UpdateDocumentDto, Object]),
     __metadata("design:returntype", void 0)
 ], DocumentsController.prototype, "update", null);
 __decorate([
@@ -124,8 +131,9 @@ __decorate([
         description: 'Requires delete permission (owner only)'
     }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], DocumentsController.prototype, "remove", null);
 __decorate([
@@ -138,9 +146,9 @@ __decorate([
     (0, swagger_1.ApiBody)({ type: share_document_dto_1.ShareDocumentDto }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
-    __param(2, (0, common_1.Headers)('x-user-id')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, share_document_dto_1.ShareDocumentDto, String]),
+    __metadata("design:paramtypes", [String, share_document_dto_1.ShareDocumentDto, Object]),
     __metadata("design:returntype", void 0)
 ], DocumentsController.prototype, "share", null);
 __decorate([
@@ -149,9 +157,9 @@ __decorate([
     (0, swagger_1.ApiOperation)({ summary: 'Revoke access from a user or group' }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
-    __param(2, (0, common_1.Headers)('x-user-id')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, share_document_dto_1.ShareDocumentDto, String]),
+    __metadata("design:paramtypes", [String, share_document_dto_1.ShareDocumentDto, Object]),
     __metadata("design:returntype", void 0)
 ], DocumentsController.prototype, "unshare", null);
 __decorate([
@@ -175,14 +183,15 @@ __decorate([
     (0, common_1.Get)(':id/check/:relation'),
     (0, permission_decorator_1.SkipPermissionCheck)(),
     (0, swagger_1.ApiOperation)({
-        summary: 'Check if user has specific permission',
-        description: 'Useful for UI to show/hide actions'
+        summary: 'Check if a user has specific permission',
+        description: 'For Permission Playground - check any user\'s access'
     }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Param)('relation')),
-    __param(2, (0, common_1.Headers)('x-user-id')),
+    __param(2, (0, common_1.Query)('userId')),
+    __param(3, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:paramtypes", [String, String, String, Object]),
     __metadata("design:returntype", void 0)
 ], DocumentsController.prototype, "checkAccess", null);
 exports.DocumentsController = DocumentsController = __decorate([

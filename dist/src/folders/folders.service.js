@@ -11,28 +11,31 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FoldersService = void 0;
 const common_1 = require("@nestjs/common");
-const prisma_service_1 = require("../prisma.service");
+const drizzle_orm_1 = require("drizzle-orm");
+const drizzle_service_1 = require("../drizzle/drizzle.service");
+const schema_1 = require("../drizzle/schema");
 const keto_service_1 = require("../keto/keto.service");
 const event_publisher_service_1 = require("../events/event-publisher.service");
 const folder_events_1 = require("./events/folder.events");
 let FoldersService = class FoldersService {
-    prisma;
+    drizzle;
     ketoService;
     eventPublisher;
-    constructor(prisma, ketoService, eventPublisher) {
-        this.prisma = prisma;
+    constructor(drizzle, ketoService, eventPublisher) {
+        this.drizzle = drizzle;
         this.ketoService = ketoService;
         this.eventPublisher = eventPublisher;
     }
     async create(createFolderDto, userId) {
-        const folder = await this.prisma.folder.create({
-            data: {
-                name: createFolderDto.name,
-                description: createFolderDto.description,
-                parentId: createFolderDto.parentId,
-                ownerId: userId,
-            },
-            include: { parent: true, owner: true },
+        const [folder] = await this.drizzle.db.insert(schema_1.folders).values({
+            name: createFolderDto.name,
+            description: createFolderDto.description,
+            parentId: createFolderDto.parentId,
+            ownerId: userId,
+        }).returning();
+        const result = await this.drizzle.db.query.folders.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.folders.id, folder.id),
+            with: { parent: true, owner: true },
         });
         await this.ketoService.createRelation({
             namespace: 'Folder',
@@ -57,12 +60,10 @@ let FoldersService = class FoldersService {
             description: folder.description ?? undefined,
             parentId: folder.parentId ?? undefined,
         }));
-        return folder;
+        return result;
     }
     async share(folderId, shareDto, requesterId) {
-        const folder = await this.prisma.folder.findUnique({
-            where: { id: folderId },
-        });
+        const [folder] = await this.drizzle.db.select().from(schema_1.folders).where((0, drizzle_orm_1.eq)(schema_1.folders.id, folderId));
         if (!folder) {
             throw new common_1.NotFoundException('Folder not found');
         }
@@ -116,8 +117,19 @@ let FoldersService = class FoldersService {
         throw new Error('Must specify userId or groupId');
     }
     async findAll() {
-        return this.prisma.folder.findMany({
-            include: {
+        return this.drizzle.db.query.folders.findMany({
+            with: {
+                parent: true,
+                children: true,
+                documents: true,
+                owner: true,
+            },
+        });
+    }
+    async findAllByOwner(ownerId) {
+        return this.drizzle.db.query.folders.findMany({
+            where: (0, drizzle_orm_1.eq)(schema_1.folders.ownerId, ownerId),
+            with: {
                 parent: true,
                 children: true,
                 documents: true,
@@ -126,9 +138,9 @@ let FoldersService = class FoldersService {
         });
     }
     async findOne(id) {
-        const folder = await this.prisma.folder.findUnique({
-            where: { id },
-            include: {
+        const folder = await this.drizzle.db.query.folders.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.folders.id, id),
+            with: {
                 parent: true,
                 children: true,
                 documents: true,
@@ -183,9 +195,7 @@ let FoldersService = class FoldersService {
         };
     }
     async getAccessList(folderId) {
-        const folder = await this.prisma.folder.findUnique({
-            where: { id: folderId },
-        });
+        const [folder] = await this.drizzle.db.select().from(schema_1.folders).where((0, drizzle_orm_1.eq)(schema_1.folders.id, folderId));
         if (!folder) {
             throw new common_1.NotFoundException('Folder not found');
         }
@@ -220,16 +230,22 @@ let FoldersService = class FoldersService {
             check: `Folder:${folderId}#${relation}@User:${userId}`
         };
     }
-    async remove(id) {
+    async remove(id, userId) {
+        const [folder] = await this.drizzle.db.select().from(schema_1.folders).where((0, drizzle_orm_1.eq)(schema_1.folders.id, id));
         await this.ketoService.deleteAllRelationsForObject('Folder', id);
-        await this.prisma.folder.delete({ where: { id } });
+        await this.drizzle.db.delete(schema_1.folders).where((0, drizzle_orm_1.eq)(schema_1.folders.id, id));
+        if (userId && folder) {
+            await this.eventPublisher.publish((0, folder_events_1.createFolderDeletedEvent)(id, userId, {
+                name: folder.name,
+            }));
+        }
         return { success: true };
     }
 };
 exports.FoldersService = FoldersService;
 exports.FoldersService = FoldersService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+    __metadata("design:paramtypes", [drizzle_service_1.DrizzleService,
         keto_service_1.KetoService,
         event_publisher_service_1.EventPublisherService])
 ], FoldersService);

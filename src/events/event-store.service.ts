@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../prisma.service';
+import { eq, desc, gte, and } from 'drizzle-orm';
+import { DrizzleService } from '../drizzle/drizzle.service';
+import { events } from '../drizzle/schema';
 import { DomainEvent, AggregateType, EventType } from './interfaces/event.interface';
-import { randomUUID } from 'crypto';
 
 /**
  * ============================================
@@ -9,29 +10,15 @@ import { randomUUID } from 'crypto';
  * ============================================
  *
  * Core service for persisting and retrieving domain events.
- *
- * CONCEPT: Event Store
- * The event store is an append-only log of all domain events.
- * Events are immutable once stored - we never update or delete them.
- *
- * KEY OPERATIONS:
- * 1. append() - Store a new event
- * 2. getEvents() - Get all events for an aggregate
- * 3. getEventsByType() - Get events of a specific type
- * 4. getAllEvents() - Get all events (with optional time filter)
  */
 @Injectable()
 export class EventStoreService {
     private readonly logger = new Logger(EventStoreService.name);
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(private readonly drizzle: DrizzleService) { }
 
     /**
      * Append a new event to the event store
-     *
-     * CONCEPT: Event Immutability
-     * Events represent facts that happened - they cannot be changed.
-     * We only ever append new events, never update or delete.
      */
     async append(
         params: Omit<DomainEvent, 'eventId' | 'timestamp' | 'version'>,
@@ -39,24 +26,24 @@ export class EventStoreService {
         const { aggregateType, aggregateId, eventType, userId, payload, metadata } = params;
 
         // Get the next version number for this aggregate
-        const lastEvent = await this.prisma.event.findFirst({
-            where: { aggregateId },
-            orderBy: { version: 'desc' },
-        });
+        const [lastEvent] = await this.drizzle.db
+            .select({ version: events.version })
+            .from(events)
+            .where(eq(events.aggregateId, aggregateId))
+            .orderBy(desc(events.version))
+            .limit(1);
         const nextVersion = (lastEvent?.version ?? 0) + 1;
 
         // Create the event
-        const event = await this.prisma.event.create({
-            data: {
-                eventType,
-                aggregateType,
-                aggregateId,
-                version: nextVersion,
-                userId,
-                payload: payload as object,
-                metadata: metadata as object | undefined,
-            },
-        });
+        const [event] = await this.drizzle.db.insert(events).values({
+            eventType,
+            aggregateType,
+            aggregateId,
+            version: nextVersion,
+            userId,
+            payload: payload as object,
+            metadata: metadata as object,
+        }).returning();
 
         const domainEvent: DomainEvent = {
             eventId: event.id,
@@ -79,94 +66,108 @@ export class EventStoreService {
 
     /**
      * Get all events for a specific aggregate
-     *
-     * CONCEPT: Event Replay
-     * By getting all events for an aggregate, we can rebuild its state
-     * by replaying them in order.
      */
     async getEvents(aggregateId: string): Promise<DomainEvent[]> {
-        const events = await this.prisma.event.findMany({
-            where: { aggregateId },
-            orderBy: { version: 'asc' },
-        });
+        const result = await this.drizzle.db
+            .select()
+            .from(events)
+            .where(eq(events.aggregateId, aggregateId))
+            .orderBy(events.version);
 
-        return events.map(this.mapTodomainEvent);
+        return result.map(this.mapToDomainEvent);
     }
 
     /**
      * Get events of a specific type
-     *
-     * Useful for analytics and projections.
-     * Example: Get all 'DocumentShared' events to build a sharing report.
      */
     async getEventsByType(
         eventType: EventType,
         options?: { since?: Date; limit?: number },
     ): Promise<DomainEvent[]> {
-        const events = await this.prisma.event.findMany({
-            where: {
-                eventType,
-                ...(options?.since && { createdAt: { gte: options.since } }),
-            },
-            orderBy: { createdAt: 'asc' },
-            take: options?.limit,
-        });
+        const conditions = [eq(events.eventType, eventType)];
+        if (options?.since) {
+            conditions.push(gte(events.createdAt, options.since));
+        }
 
-        return events.map(this.mapTodomainEvent);
+        let query = this.drizzle.db
+            .select()
+            .from(events)
+            .where(and(...conditions))
+            .orderBy(events.createdAt);
+
+        if (options?.limit) {
+            query = query.limit(options.limit) as typeof query;
+        }
+
+        const result = await query;
+        return result.map(this.mapToDomainEvent);
     }
 
     /**
      * Get events for a specific aggregate type
-     *
-     * Example: Get all Document events, or all Folder events.
      */
     async getEventsByAggregateType(
         aggregateType: AggregateType,
         options?: { since?: Date; limit?: number },
     ): Promise<DomainEvent[]> {
-        const events = await this.prisma.event.findMany({
-            where: {
-                aggregateType,
-                ...(options?.since && { createdAt: { gte: options.since } }),
-            },
-            orderBy: { createdAt: 'asc' },
-            take: options?.limit,
-        });
+        const conditions = [eq(events.aggregateType, aggregateType)];
+        if (options?.since) {
+            conditions.push(gte(events.createdAt, options.since));
+        }
 
-        return events.map(this.mapTodomainEvent);
+        let query = this.drizzle.db
+            .select()
+            .from(events)
+            .where(and(...conditions))
+            .orderBy(events.createdAt);
+
+        if (options?.limit) {
+            query = query.limit(options.limit) as typeof query;
+        }
+
+        const result = await query;
+        return result.map(this.mapToDomainEvent);
     }
 
     /**
      * Get all events in the system
-     *
-     * CONCEPT: Audit Log
-     * This provides a complete audit trail of everything that happened.
      */
     async getAllEvents(options?: { since?: Date; limit?: number }): Promise<DomainEvent[]> {
-        const events = await this.prisma.event.findMany({
-            where: options?.since ? { createdAt: { gte: options.since } } : undefined,
-            orderBy: { createdAt: 'asc' },
-            take: options?.limit ?? 100,
-        });
+        const conditions = options?.since ? [gte(events.createdAt, options.since)] : [];
 
-        return events.map(this.mapTodomainEvent);
+        const result = conditions.length > 0
+            ? await this.drizzle.db
+                .select()
+                .from(events)
+                .where(and(...conditions))
+                .orderBy(events.createdAt)
+                .limit(options?.limit ?? 100)
+            : await this.drizzle.db
+                .select()
+                .from(events)
+                .orderBy(events.createdAt)
+                .limit(options?.limit ?? 100);
+
+        return result.map(this.mapToDomainEvent);
     }
 
     /**
      * Get the current version of an aggregate
      */
     async getAggregateVersion(aggregateId: string): Promise<number> {
-        const lastEvent = await this.prisma.event.findFirst({
-            where: { aggregateId },
-            orderBy: { version: 'desc' },
-        });
+        const [lastEvent] = await this.drizzle.db
+            .select({ version: events.version })
+            .from(events)
+            .where(eq(events.aggregateId, aggregateId))
+            .orderBy(desc(events.version))
+            .limit(1);
         return lastEvent?.version ?? 0;
     }
 
     /**
-     * Map Prisma event to DomainEvent interface
+     * Map event to DomainEvent interface
      */
-    private mapTodomainEvent(event: {
+    private mapToDomainEvent(event: {
         id: string;
         eventType: string;
         aggregateType: string;

@@ -1,9 +1,9 @@
-import { PrismaService } from '../prisma.service';
+import { DrizzleService } from '../drizzle/drizzle.service';
 import { DomainEvent, AggregateType, EventType } from './interfaces/event.interface';
 export declare class EventStoreService {
-    private readonly prisma;
+    private readonly drizzle;
     private readonly logger;
-    constructor(prisma: PrismaService);
+    constructor(drizzle: DrizzleService);
     append(params: Omit<DomainEvent, 'eventId' | 'timestamp' | 'version'>): Promise<DomainEvent>;
     getEvents(aggregateId: string): Promise<DomainEvent[]>;
     getEventsByType(eventType: EventType, options?: {
@@ -19,5 +19,5 @@ export declare class EventStoreService {
         limit?: number;
     }): Promise<DomainEvent[]>;
     getAggregateVersion(aggregateId: string): Promise<number>;
-    private mapTodomainEvent;
+    private mapToDomainEvent;
 }

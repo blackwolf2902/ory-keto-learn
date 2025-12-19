@@ -11,28 +11,31 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DocumentsService = void 0;
 const common_1 = require("@nestjs/common");
-const prisma_service_1 = require("../prisma.service");
+const drizzle_orm_1 = require("drizzle-orm");
+const drizzle_service_1 = require("../drizzle/drizzle.service");
+const schema_1 = require("../drizzle/schema");
 const keto_service_1 = require("../keto/keto.service");
 const event_publisher_service_1 = require("../events/event-publisher.service");
 const document_events_1 = require("./events/document.events");
 let DocumentsService = class DocumentsService {
-    prisma;
+    drizzle;
     ketoService;
     eventPublisher;
-    constructor(prisma, ketoService, eventPublisher) {
-        this.prisma = prisma;
+    constructor(drizzle, ketoService, eventPublisher) {
+        this.drizzle = drizzle;
         this.ketoService = ketoService;
         this.eventPublisher = eventPublisher;
     }
     async create(createDocumentDto, userId) {
-        const document = await this.prisma.document.create({
-            data: {
-                title: createDocumentDto.title,
-                content: createDocumentDto.content,
-                folderId: createDocumentDto.folderId,
-                ownerId: userId,
-            },
-            include: { folder: true, owner: true },
+        const [document] = await this.drizzle.db.insert(schema_1.documents).values({
+            title: createDocumentDto.title,
+            content: createDocumentDto.content,
+            folderId: createDocumentDto.folderId,
+            ownerId: userId,
+        }).returning();
+        const result = await this.drizzle.db.query.documents.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.documents.id, document.id),
+            with: { folder: true, owner: true },
         });
         await this.ketoService.createRelation({
             namespace: 'Document',
@@ -57,12 +60,10 @@ let DocumentsService = class DocumentsService {
             content: document.content ?? undefined,
             folderId: document.folderId ?? undefined,
         }));
-        return document;
+        return result;
     }
     async share(documentId, shareDto, requesterId) {
-        const document = await this.prisma.document.findUnique({
-            where: { id: documentId },
-        });
+        const [document] = await this.drizzle.db.select().from(schema_1.documents).where((0, drizzle_orm_1.eq)(schema_1.documents.id, documentId));
         if (!document) {
             throw new common_1.NotFoundException('Document not found');
         }
@@ -184,14 +185,20 @@ let DocumentsService = class DocumentsService {
         };
     }
     async findAll() {
-        return this.prisma.document.findMany({
-            include: { folder: true, owner: true },
+        return this.drizzle.db.query.documents.findMany({
+            with: { folder: true, owner: true },
+        });
+    }
+    async findAllByOwner(ownerId) {
+        return this.drizzle.db.query.documents.findMany({
+            where: (0, drizzle_orm_1.eq)(schema_1.documents.ownerId, ownerId),
+            with: { folder: true, owner: true },
         });
     }
     async findOne(id) {
-        const document = await this.prisma.document.findUnique({
-            where: { id },
-            include: { folder: true, owner: true },
+        const document = await this.drizzle.db.query.documents.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.documents.id, id),
+            with: { folder: true, owner: true },
         });
         if (!document) {
             throw new common_1.NotFoundException('Document not found');
@@ -199,22 +206,25 @@ let DocumentsService = class DocumentsService {
         return document;
     }
     async update(id, updateDocumentDto, userId) {
-        const document = await this.prisma.document.update({
-            where: { id },
-            data: updateDocumentDto,
-            include: { folder: true, owner: true },
+        const [document] = await this.drizzle.db.update(schema_1.documents)
+            .set({ ...updateDocumentDto, updatedAt: new Date() })
+            .where((0, drizzle_orm_1.eq)(schema_1.documents.id, id))
+            .returning();
+        const result = await this.drizzle.db.query.documents.findFirst({
+            where: (0, drizzle_orm_1.eq)(schema_1.documents.id, id),
+            with: { folder: true, owner: true },
         });
         if (userId) {
             await this.eventPublisher.publish((0, document_events_1.createDocumentUpdatedEvent)(id, userId, {
                 changes: updateDocumentDto,
             }));
         }
-        return document;
+        return result;
     }
     async remove(id, userId) {
-        const document = await this.prisma.document.findUnique({ where: { id } });
+        const [document] = await this.drizzle.db.select().from(schema_1.documents).where((0, drizzle_orm_1.eq)(schema_1.documents.id, id));
         await this.ketoService.deleteAllRelationsForObject('Document', id);
-        await this.prisma.document.delete({ where: { id } });
+        await this.drizzle.db.delete(schema_1.documents).where((0, drizzle_orm_1.eq)(schema_1.documents.id, id));
         if (userId && document) {
             await this.eventPublisher.publish((0, document_events_1.createDocumentDeletedEvent)(id, userId, {
                 title: document.title,
@@ -226,7 +236,7 @@ let DocumentsService = class DocumentsService {
 exports.DocumentsService = DocumentsService;
 exports.DocumentsService = DocumentsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+    __metadata("design:paramtypes", [drizzle_service_1.DrizzleService,
         keto_service_1.KetoService,
         event_publisher_service_1.EventPublisherService])
 ], DocumentsService);

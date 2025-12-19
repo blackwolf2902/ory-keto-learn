@@ -5,7 +5,6 @@ import {
     Delete,
     Body,
     Param,
-    Headers,
     UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
@@ -14,18 +13,16 @@ import { CreateFolderDto } from './dto/create-folder.dto';
 import { ShareFolderDto } from './dto/share-folder.dto';
 import { KetoGuard } from '../common/guards/keto.guard';
 import { RequirePermission, SkipPermissionCheck } from '../common/decorators/permission.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { KratosIdentity } from '../common/decorators/current-user.decorator';
 
 /**
  * FoldersController - Hierarchical Resource Organization
  * 
- * LEARNING: Folder Permissions Cascade
- * 
- * When you grant access to a folder:
- * - User gets access to all documents in the folder
- * - User gets access to all subfolders
- * - User gets access to all documents in subfolders
- * 
- * This is AUTOMATIC through parent relations!
+ * USER SESSION ISOLATION:
+ * - All folder operations are scoped to the authenticated user
+ * - @CurrentUser() decorator extracts user from Kratos session
+ * - findAll() returns only folders owned by the current user
  */
 @ApiTags('Folders')
 @Controller('folders')
@@ -41,16 +38,20 @@ export class FoldersController {
     })
     create(
         @Body() createFolderDto: CreateFolderDto,
-        @Headers('x-user-id') userId: string,
+        @CurrentUser() user: KratosIdentity,
     ) {
-        return this.foldersService.create(createFolderDto, userId);
+        return this.foldersService.create(createFolderDto, user.id);
     }
 
+    /**
+     * Get all folders for the current user
+     * SESSION ISOLATION: Returns only folders owned by the authenticated user
+     */
     @Get()
     @SkipPermissionCheck()
-    @ApiOperation({ summary: 'Get all folders' })
-    findAll() {
-        return this.foldersService.findAll();
+    @ApiOperation({ summary: 'Get all folders (filtered by current user)' })
+    findAll(@CurrentUser() user: KratosIdentity) {
+        return this.foldersService.findAllByOwner(user.id);
     }
 
     @Get(':id')
@@ -75,30 +76,22 @@ export class FoldersController {
     share(
         @Param('id') id: string,
         @Body() shareDto: ShareFolderDto,
-        @Headers('x-user-id') userId: string,
+        @CurrentUser() user: KratosIdentity,
     ) {
-        return this.foldersService.share(id, shareDto, userId);
+        return this.foldersService.share(id, shareDto, user.id);
     }
 
-    /**
-     * Revoke access
-     */
     @Delete(':id/share')
     @SkipPermissionCheck()
     @ApiOperation({ summary: 'Revoke access from a user or group' })
     unshare(
         @Param('id') id: string,
         @Body() shareDto: ShareFolderDto,
-        @Headers('x-user-id') userId: string,
+        @CurrentUser() user: KratosIdentity,
     ) {
-        return this.foldersService.unshare(id, shareDto, userId);
+        return this.foldersService.unshare(id, shareDto, user.id);
     }
 
-    /**
-     * Get access list for a folder
-     * 
-     * LEARNING: Uses Keto's expand API to list all subjects
-     */
     @Get(':id/access')
     @RequirePermission({
         namespace: 'Folder',
@@ -114,11 +107,6 @@ export class FoldersController {
         return this.foldersService.getAccessList(id);
     }
 
-    /**
-     * Check if current user has specific permission
-     * 
-     * LEARNING: Direct permission check endpoint for testing
-     */
     @Get(':id/check/:relation')
     @SkipPermissionCheck()
     @ApiOperation({
@@ -128,9 +116,9 @@ export class FoldersController {
     checkAccess(
         @Param('id') id: string,
         @Param('relation') relation: string,
-        @Headers('x-user-id') userId: string,
+        @CurrentUser() user: KratosIdentity,
     ) {
-        return this.foldersService.checkAccess(id, userId, relation);
+        return this.foldersService.checkAccess(id, user.id, relation);
     }
 
     @Delete(':id')
@@ -141,7 +129,7 @@ export class FoldersController {
         objectIdParam: 'id',
     })
     @ApiOperation({ summary: 'Delete a folder' })
-    remove(@Param('id') id: string) {
-        return this.foldersService.remove(id);
+    remove(@Param('id') id: string, @CurrentUser() user: KratosIdentity) {
+        return this.foldersService.remove(id, user.id);
     }
 }

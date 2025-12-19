@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from '../prisma.service';
+import { eq } from 'drizzle-orm';
+import { DrizzleService } from '../drizzle/drizzle.service';
+import { documents, folders, users } from '../drizzle/schema';
 import { KetoService } from '../keto/keto.service';
 import { EventPublisherService } from '../events/event-publisher.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -17,47 +19,30 @@ import {
  * ============================================
  * DOCUMENTS SERVICE - Core Resource Protection
  * ============================================
- * 
- * This service demonstrates ALL major Keto concepts:
- * 
- * 1. OWNER ASSIGNMENT: Creator gets owner relation
- * 2. DIRECT SHARING: Add viewer/editor relations
- * 3. GROUP SHARING: Share with group members (Subject Sets)
- * 4. PARENT INHERITANCE: Document inherits folder permissions
- * 5. PERMISSION EXPANSION: List who can access a document
  */
 @Injectable()
 export class DocumentsService {
     constructor(
-        private readonly prisma: PrismaService,
+        private readonly drizzle: DrizzleService,
         private readonly ketoService: KetoService,
         private readonly eventPublisher: EventPublisherService,
     ) { }
 
     /**
      * Create a new document
-     * 
-     * KETO INTEGRATION - Creating Owner Relation:
-     * When a document is created, we automatically assign
-     * the creator as the owner in Keto:
-     *   Document:{docId}#owner@User:{userId}
-     * 
-     * If the document is in a folder, we also create:
-     *   Document:{docId}#parent@Folder:{folderId}
-     * 
-     * This enables PERMISSION INHERITANCE - if you can view
-     * the folder, you can view documents in it.
      */
     async create(createDocumentDto: CreateDocumentDto, userId: string) {
-        // Create document in database
-        const document = await this.prisma.document.create({
-            data: {
-                title: createDocumentDto.title,
-                content: createDocumentDto.content,
-                folderId: createDocumentDto.folderId,
-                ownerId: userId,
-            },
-            include: { folder: true, owner: true },
+        const [document] = await this.drizzle.db.insert(documents).values({
+            title: createDocumentDto.title,
+            content: createDocumentDto.content,
+            folderId: createDocumentDto.folderId,
+            ownerId: userId,
+        }).returning();
+
+        // Fetch with relations
+        const result = await this.drizzle.db.query.documents.findFirst({
+            where: eq(documents.id, document.id),
+            with: { folder: true, owner: true },
         });
 
         // CREATE OWNER RELATION IN KETO
@@ -77,7 +62,7 @@ export class DocumentsService {
                 subjectSet: {
                     namespace: 'Folder',
                     object: document.folderId,
-                    relation: 'viewer', // Folder viewers become document viewers
+                    relation: 'viewer',
                 },
             });
         }
@@ -91,27 +76,14 @@ export class DocumentsService {
             }),
         );
 
-        return document;
+        return result;
     }
 
     /**
      * Share a document with a user or group
-     * 
-     * KETO INTEGRATION - Granting Access:
-     * 
-     * Share with user:
-     *   Document:{docId}#viewer@User:{userId}
-     * 
-     * Share with group:
-     *   Document:{docId}#viewer@Group:{groupId}#member
-     * 
-     * The group sharing uses SUBJECT SETS - instead of
-     * granting to each user, we grant to "members of group X"
      */
     async share(documentId: string, shareDto: ShareDocumentDto, requesterId: string) {
-        const document = await this.prisma.document.findUnique({
-            where: { id: documentId },
-        });
+        const [document] = await this.drizzle.db.select().from(documents).where(eq(documents.id, documentId));
 
         if (!document) {
             throw new NotFoundException('Document not found');
@@ -129,9 +101,7 @@ export class DocumentsService {
             throw new ForbiddenException('Only owners can share documents');
         }
 
-        // Create the relation based on share type
         if (shareDto.userId) {
-            // DIRECT USER SHARING
             await this.ketoService.createRelation({
                 namespace: 'Document',
                 object: documentId,
@@ -139,7 +109,6 @@ export class DocumentsService {
                 subjectId: `User:${shareDto.userId}`,
             });
 
-            // EVENT SOURCING: Record document shared with user
             await this.eventPublisher.publish(
                 createDocumentSharedEvent(documentId, requesterId, {
                     targetType: 'user',
@@ -154,7 +123,6 @@ export class DocumentsService {
                 relation: `Document:${documentId}#${shareDto.relation}@User:${shareDto.userId}`
             };
         } else if (shareDto.groupId) {
-            // GROUP SHARING (Subject Set)
             await this.ketoService.createRelation({
                 namespace: 'Document',
                 object: documentId,
@@ -162,7 +130,6 @@ export class DocumentsService {
                 subjectSet: this.ketoService.groupMembersSubjectSet(shareDto.groupId),
             });
 
-            // EVENT SOURCING: Record document shared with group
             await this.eventPublisher.publish(
                 createDocumentSharedEvent(documentId, requesterId, {
                     targetType: 'group',
@@ -185,7 +152,6 @@ export class DocumentsService {
      * Revoke access from a user or group
      */
     async unshare(documentId: string, shareDto: ShareDocumentDto, requesterId: string) {
-        // Verify requester can share (must be owner)
         const canShare = await this.ketoService.checkPermission({
             namespace: 'Document',
             object: documentId,
@@ -205,7 +171,6 @@ export class DocumentsService {
                 subjectId: `User:${shareDto.userId}`,
             });
 
-            // EVENT SOURCING: Record access revoked from user
             await this.eventPublisher.publish(
                 createDocumentUnsharedEvent(documentId, requesterId, {
                     targetType: 'user',
@@ -221,7 +186,6 @@ export class DocumentsService {
                 subjectSet: this.ketoService.groupMembersSubjectSet(shareDto.groupId),
             });
 
-            // EVENT SOURCING: Record access revoked from group
             await this.eventPublisher.publish(
                 createDocumentUnsharedEvent(documentId, requesterId, {
                     targetType: 'group',
@@ -236,9 +200,6 @@ export class DocumentsService {
 
     /**
      * Get who has access to a document
-     * 
-     * KETO INTEGRATION - Permission Expansion:
-     * Uses the expand API to list all subjects with a permission.
      */
     async getAccessList(documentId: string) {
         const [owners, editors, viewers] = await Promise.all([
@@ -279,18 +240,27 @@ export class DocumentsService {
         };
     }
 
-    // Basic CRUD operations
-
     async findAll() {
-        return this.prisma.document.findMany({
-            include: { folder: true, owner: true },
+        return this.drizzle.db.query.documents.findMany({
+            with: { folder: true, owner: true },
+        });
+    }
+
+    /**
+     * Get documents owned by a specific user
+     * SESSION ISOLATION: Users only see their own documents
+     */
+    async findAllByOwner(ownerId: string) {
+        return this.drizzle.db.query.documents.findMany({
+            where: eq(documents.ownerId, ownerId),
+            with: { folder: true, owner: true },
         });
     }
 
     async findOne(id: string) {
-        const document = await this.prisma.document.findUnique({
-            where: { id },
-            include: { folder: true, owner: true },
+        const document = await this.drizzle.db.query.documents.findFirst({
+            where: eq(documents.id, id),
+            with: { folder: true, owner: true },
         });
 
         if (!document) {
@@ -301,13 +271,16 @@ export class DocumentsService {
     }
 
     async update(id: string, updateDocumentDto: UpdateDocumentDto, userId?: string) {
-        const document = await this.prisma.document.update({
-            where: { id },
-            data: updateDocumentDto,
-            include: { folder: true, owner: true },
+        const [document] = await this.drizzle.db.update(documents)
+            .set({ ...updateDocumentDto, updatedAt: new Date() })
+            .where(eq(documents.id, id))
+            .returning();
+
+        const result = await this.drizzle.db.query.documents.findFirst({
+            where: eq(documents.id, id),
+            with: { folder: true, owner: true },
         });
 
-        // EVENT SOURCING: Record document update
         if (userId) {
             await this.eventPublisher.publish(
                 createDocumentUpdatedEvent(id, userId, {
@@ -316,20 +289,16 @@ export class DocumentsService {
             );
         }
 
-        return document;
+        return result;
     }
 
     async remove(id: string, userId?: string) {
-        // Get document info before deletion for event
-        const document = await this.prisma.document.findUnique({ where: { id } });
+        const [document] = await this.drizzle.db.select().from(documents).where(eq(documents.id, id));
 
-        // Delete all Keto relations for this document
         await this.ketoService.deleteAllRelationsForObject('Document', id);
 
-        // Delete from database
-        await this.prisma.document.delete({ where: { id } });
+        await this.drizzle.db.delete(documents).where(eq(documents.id, id));
 
-        // EVENT SOURCING: Record document deletion
         if (userId && document) {
             await this.eventPublisher.publish(
                 createDocumentDeletedEvent(id, userId, {

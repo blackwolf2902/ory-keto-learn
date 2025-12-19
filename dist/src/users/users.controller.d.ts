@@ -4,74 +4,102 @@ export declare class UsersController {
     private readonly usersService;
     constructor(usersService: UsersService);
     create(createUserDto: CreateUserDto): Promise<{
+        id: string;
         email: string;
         name: string;
-        id: string;
         createdAt: Date;
         updatedAt: Date;
     }>;
-    findAll(): Promise<({
-        groups: ({
-            group: {
-                description: string | null;
-                name: string;
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-            };
-        } & {
+    findAll(): Promise<{
+        groups: {
             id: string;
             createdAt: Date;
             userId: string;
-            role: string;
             groupId: string;
-        })[];
-    } & {
+            role: string;
+            group: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                description: string | null;
+                creatorId: string | null;
+            };
+        }[];
+        id: string;
         email: string;
         name: string;
-        id: string;
         createdAt: Date;
         updatedAt: Date;
-    })[]>;
-    findOne(id: string): Promise<({
+        groupMemberships: {
+            id: string;
+            createdAt: Date;
+            userId: string;
+            groupId: string;
+            role: string;
+            group: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                description: string | null;
+                creatorId: string | null;
+            };
+        }[];
+    }[]>;
+    findOne(id: string): Promise<{
+        groups: {
+            id: string;
+            createdAt: Date;
+            userId: string;
+            groupId: string;
+            role: string;
+            group: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                description: string | null;
+                creatorId: string | null;
+            };
+        }[];
+        id: string;
+        email: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
         ownedDocuments: {
-            title: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            ownerId: string;
+            title: string;
             content: string | null;
             folderId: string | null;
-            ownerId: string;
         }[];
         ownedFolders: {
-            description: string | null;
-            name: string;
             id: string;
+            name: string;
             createdAt: Date;
             updatedAt: Date;
-            ownerId: string;
+            description: string | null;
             parentId: string | null;
+            ownerId: string;
         }[];
-        groups: ({
-            group: {
-                description: string | null;
-                name: string;
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-            };
-        } & {
+        groupMemberships: {
             id: string;
             createdAt: Date;
             userId: string;
-            role: string;
             groupId: string;
-        })[];
-    } & {
-        email: string;
-        name: string;
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-    }) | null>;
+            role: string;
+            group: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                description: string | null;
+                creatorId: string | null;
+            };
+        }[];
+    } | null>;
 }

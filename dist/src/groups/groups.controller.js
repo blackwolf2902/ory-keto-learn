@@ -19,16 +19,17 @@ const groups_service_1 = require("./groups.service");
 const create_group_dto_1 = require("./dto/create-group.dto");
 const add_member_dto_1 = require("./dto/add-member.dto");
 const permission_decorator_1 = require("../common/decorators/permission.decorator");
+const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 let GroupsController = class GroupsController {
     groupsService;
     constructor(groupsService) {
         this.groupsService = groupsService;
     }
-    create(createGroupDto) {
-        return this.groupsService.create(createGroupDto);
+    create(createGroupDto, user) {
+        return this.groupsService.create(createGroupDto, user.id);
     }
-    findAll() {
-        return this.groupsService.findAll();
+    findAll(user) {
+        return this.groupsService.findAllByCreator(user.id);
     }
     findOne(id) {
         return this.groupsService.findOne(id);
@@ -49,16 +50,18 @@ __decorate([
     (0, permission_decorator_1.SkipPermissionCheck)(),
     (0, swagger_1.ApiOperation)({ summary: 'Create a new group' }),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_group_dto_1.CreateGroupDto]),
+    __metadata("design:paramtypes", [create_group_dto_1.CreateGroupDto, Object]),
     __metadata("design:returntype", void 0)
 ], GroupsController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)(),
     (0, permission_decorator_1.SkipPermissionCheck)(),
-    (0, swagger_1.ApiOperation)({ summary: 'Get all groups' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Get all groups (filtered by current user)' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], GroupsController.prototype, "findAll", null);
 __decorate([
@@ -77,7 +80,6 @@ __decorate([
         summary: 'Add a member to a group',
         description: 'Creates a Group:{id}#member@User:{userId} relation in Keto'
     }),
-    (0, swagger_1.ApiHeader)({ name: 'x-user-id', description: 'Current user ID', required: true }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
@@ -88,7 +90,6 @@ __decorate([
     (0, common_1.Delete)(':groupId/members/:userId'),
     (0, permission_decorator_1.SkipPermissionCheck)(),
     (0, swagger_1.ApiOperation)({ summary: 'Remove a member from a group' }),
-    (0, swagger_1.ApiHeader)({ name: 'x-user-id', description: 'Current user ID', required: true }),
     __param(0, (0, common_1.Param)('groupId')),
     __param(1, (0, common_1.Param)('userId')),
     __metadata("design:type", Function),

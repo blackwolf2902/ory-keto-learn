@@ -20,7 +20,7 @@ services:
 
   # Ory Keto - Permission/Authorization Service
   keto-migrate:
-    image: oryd/keto:v0.12.0
+    image: oryd/keto:v25.4.0
     container_name: ory-keto-migrate
     depends_on:
       postgres:
@@ -32,7 +32,7 @@ services:
     command: migrate up -y --config /home/ory/keto.yml
 
   keto:
-    image: oryd/keto:v0.12.0
+    image: oryd/keto:v25.4.0
     container_name: ory-keto
     depends_on:
       keto-migrate:
@@ -45,6 +45,34 @@ services:
     volumes:
       - ./keto:/home/ory
     command: serve --config /home/ory/keto.yml
+
+  # Ory Kratos - Identity/Authentication Service
+  kratos-migrate:
+    image: oryd/kratos:v25.4.0
+    container_name: ory-kratos-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSN: postgres://postgres:postgres@postgres:5432/kratos?sslmode=disable
+    volumes:
+      - ./kratos:/etc/config/kratos
+    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
+
+  kratos:
+    image: oryd/kratos:v25.4.0
+    container_name: ory-kratos
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+    environment:
+      DSN: postgres://postgres:postgres@postgres:5432/kratos?sslmode=disable
+    ports:
+      - "4433:4433"  # Public API
+      - "4434:4434"  # Admin API
+    volumes:
+      - ./kratos:/etc/config/kratos
+    command: serve -c /etc/config/kratos/kratos.yml --dev
 
 volumes:
   postgres_data:

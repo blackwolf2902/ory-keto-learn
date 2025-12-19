@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma.service';
+import { eq, and } from 'drizzle-orm';
+import { DrizzleService } from '../drizzle/drizzle.service';
+import { groups, groupMembers, users } from '../drizzle/schema';
 import { KetoService } from '../keto/keto.service';
 import { EventPublisherService } from '../events/event-publisher.service';
 import { CreateGroupDto } from './dto/create-group.dto';
@@ -29,16 +31,11 @@ import {
  *   Group:engineering#member@User:alice
  *   Group:engineering#member@User:bob
  *   Group:engineering#member@User:charlie
- * 
- * Benefits:
- * 1. Easier to manage large teams
- * 2. Single point of access change (add/remove group member)
- * 3. Clear organizational structure in permissions
  */
 @Injectable()
 export class GroupsService {
     constructor(
-        private readonly prisma: PrismaService,
+        private readonly drizzle: DrizzleService,
         private readonly ketoService: KetoService,
         private readonly eventPublisher: EventPublisherService,
     ) { }
@@ -47,9 +44,11 @@ export class GroupsService {
      * Create a new group
      */
     async create(createGroupDto: CreateGroupDto, userId?: string) {
-        const group = await this.prisma.group.create({
-            data: createGroupDto,
-        });
+        const [group] = await this.drizzle.db.insert(groups).values({
+            name: createGroupDto.name,
+            description: createGroupDto.description,
+            creatorId: userId,
+        }).returning();
 
         // EVENT SOURCING: Record group creation
         if (userId) {
@@ -70,30 +69,24 @@ export class GroupsService {
      * KETO INTEGRATION:
      * When adding a member, we create a relation tuple:
      *   Group:{groupId}#member@User:{userId}
-     * 
-     * This means the user is now a member of the group.
-     * Any permission granted to "Group:xxx#member" now applies to this user.
      */
     async addMember(groupId: string, addMemberDto: AddMemberDto) {
-        // Verify group and user exist
-        const group = await this.prisma.group.findUnique({ where: { id: groupId } });
+        // Verify group exists
+        const [group] = await this.drizzle.db.select().from(groups).where(eq(groups.id, groupId));
         if (!group) throw new NotFoundException('Group not found');
 
-        const user = await this.prisma.user.findUnique({ where: { id: addMemberDto.userId } });
+        // Verify user exists
+        const [user] = await this.drizzle.db.select().from(users).where(eq(users.id, addMemberDto.userId));
         if (!user) throw new NotFoundException('User not found');
 
         // Create membership in database
-        const membership = await this.prisma.groupMember.create({
-            data: {
-                groupId,
-                userId: addMemberDto.userId,
-                role: addMemberDto.role || 'member',
-            },
-            include: { user: true, group: true },
-        });
+        const [membership] = await this.drizzle.db.insert(groupMembers).values({
+            groupId,
+            userId: addMemberDto.userId,
+            role: addMemberDto.role || 'member',
+        }).returning();
 
         // CREATE RELATION IN KETO
-        // This is the critical step that enables group-based permissions!
         await this.ketoService.createRelation({
             namespace: 'Group',
             object: groupId,
@@ -109,22 +102,16 @@ export class GroupsService {
             }),
         );
 
-        return membership;
+        return { ...membership, user, group };
     }
 
     /**
      * Remove a member from a group
-     * 
-     * KETO INTEGRATION:
-     * Removing the relation tuple also removes all permissions
-     * that were granted through group membership.
      */
     async removeMember(groupId: string, userId: string) {
-        await this.prisma.groupMember.delete({
-            where: {
-                userId_groupId: { userId, groupId },
-            },
-        });
+        await this.drizzle.db.delete(groupMembers).where(
+            and(eq(groupMembers.userId, userId), eq(groupMembers.groupId, groupId))
+        );
 
         // DELETE RELATION IN KETO
         await this.ketoService.deleteRelation({
@@ -145,21 +132,36 @@ export class GroupsService {
     }
 
     async findAll() {
-        return this.prisma.group.findMany({
-            include: {
+        return this.drizzle.db.query.groups.findMany({
+            with: {
                 members: {
-                    include: { user: true },
+                    with: { user: true },
+                },
+            },
+        });
+    }
+
+    /**
+     * Get groups created by a specific user
+     * SESSION ISOLATION: Users only see their own groups
+     */
+    async findAllByCreator(creatorId: string) {
+        return this.drizzle.db.query.groups.findMany({
+            where: eq(groups.creatorId, creatorId),
+            with: {
+                members: {
+                    with: { user: true },
                 },
             },
         });
     }
 
     async findOne(id: string) {
-        return this.prisma.group.findUnique({
-            where: { id },
-            include: {
+        return this.drizzle.db.query.groups.findFirst({
+            where: eq(groups.id, id),
+            with: {
                 members: {
-                    include: { user: true },
+                    with: { user: true },
                 },
             },
         });
@@ -167,10 +169,6 @@ export class GroupsService {
 
     /**
      * Get all members of a group from Keto
-     * 
-     * CONCEPT: Permission Expansion
-     * You can ask Keto "who has this relation on this object?"
-     * This is useful for auditing and displaying sharing info.
      */
     async getMembersFromKeto(groupId: string) {
         return this.ketoService.expandPermission({

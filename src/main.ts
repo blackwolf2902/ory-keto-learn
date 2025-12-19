@@ -1,10 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use(cookieParser());
 
   // Enable CORS for frontend
   app.enableCors({
@@ -38,28 +40,21 @@ This API demonstrates **Relationship-Based Access Control (ReBAC)** using Ory Ke
 3. **Subject Sets**: Groups/teams for scalable permissions
 4. **Permission Inheritance**: Folder → Document access cascading
 
-### Testing Authorization
+### Authentication
 
-All endpoints require the \`x-user-id\` header to simulate the authenticated user.
+All endpoints are now protected by **Ory Kratos**. You can authenticate by:
+1. Providing a valid session cookie (handled automatically by the browser/CORS)
+2. Providing a session token in the \`Authorization: Bearer <token>\` header
 
-\`\`\`bash
-# Example: Create a document
-curl -X POST http://localhost:3000/documents \\
-  -H "x-user-id: user-uuid" \\
-  -H "Content-Type: application/json" \\
-  -d '{"title": "My Document"}'
-\`\`\`
+### Testing Kratos Integration
 
-### Permission Flow
-
-1. Create a user → Use their ID in x-user-id
-2. Create a document → Creator becomes owner
-3. Try accessing as another user → Denied
-4. Share with that user → Allowed
-
+1. Register/Login via Kratos Public API (\`http://localhost:4433\`)
+2. Use the session cookie or token in your requests
+3. The system will automatically sync your Kratos identity to the local DB
+4. Keto permission checks will use your Kratos Identity ID
     `)
     .setVersion('1.0')
-    .addApiKey({ type: 'apiKey', name: 'x-user-id', in: 'header' }, 'x-user-id')
+    .addBearerAuth()
     .addTag('Users', 'User management')
     .addTag('Groups', 'Team/group management (Subject Sets)')
     .addTag('Documents', 'Protected documents with permission checks')
@@ -76,11 +71,14 @@ curl -X POST http://localhost:3000/documents \\
 ╔══════════════════════════════════════════════════════════════════╗
 ║                 🔐 Ory Keto Learning Project                     ║
 ╟──────────────────────────────────────────────────────────────────╢
-║  Application:  http://localhost:${port}                            ║
-║  Swagger UI:   http://localhost:${port}/api                        ║
+║  Application: http://localhost:${port}                            ║
+║  Swagger UI: http://localhost:${port}/api                        ║
 ╟──────────────────────────────────────────────────────────────────╢
 ║  Keto Read:    ${process.env.KETO_READ_URL || 'http://localhost:4466'}                        ║
 ║  Keto Write:   ${process.env.KETO_WRITE_URL || 'http://localhost:4467'}                        ║
+╟──────────────────────────────────────────────────────────────────╢
+║  Kratos Public: http://localhost:4433                             ║
+║  Kratos Admin:  http://localhost:4434                             ║
 ╚══════════════════════════════════════════════════════════════════╝
   `);
 }

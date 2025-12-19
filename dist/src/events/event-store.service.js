@@ -12,31 +12,33 @@ var EventStoreService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EventStoreService = void 0;
 const common_1 = require("@nestjs/common");
-const prisma_service_1 = require("../prisma.service");
+const drizzle_orm_1 = require("drizzle-orm");
+const drizzle_service_1 = require("../drizzle/drizzle.service");
+const schema_1 = require("../drizzle/schema");
 let EventStoreService = EventStoreService_1 = class EventStoreService {
-    prisma;
+    drizzle;
     logger = new common_1.Logger(EventStoreService_1.name);
-    constructor(prisma) {
-        this.prisma = prisma;
+    constructor(drizzle) {
+        this.drizzle = drizzle;
     }
     async append(params) {
         const { aggregateType, aggregateId, eventType, userId, payload, metadata } = params;
-        const lastEvent = await this.prisma.event.findFirst({
-            where: { aggregateId },
-            orderBy: { version: 'desc' },
-        });
+        const [lastEvent] = await this.drizzle.db
+            .select({ version: schema_1.events.version })
+            .from(schema_1.events)
+            .where((0, drizzle_orm_1.eq)(schema_1.events.aggregateId, aggregateId))
+            .orderBy((0, drizzle_orm_1.desc)(schema_1.events.version))
+            .limit(1);
         const nextVersion = (lastEvent?.version ?? 0) + 1;
-        const event = await this.prisma.event.create({
-            data: {
-                eventType,
-                aggregateType,
-                aggregateId,
-                version: nextVersion,
-                userId,
-                payload: payload,
-                metadata: metadata,
-            },
-        });
+        const [event] = await this.drizzle.db.insert(schema_1.events).values({
+            eventType,
+            aggregateType,
+            aggregateId,
+            version: nextVersion,
+            userId,
+            payload: payload,
+            metadata: metadata,
+        }).returning();
         const domainEvent = {
             eventId: event.id,
             eventType: event.eventType,
@@ -52,50 +54,71 @@ let EventStoreService = EventStoreService_1 = class EventStoreService {
         return domainEvent;
     }
     async getEvents(aggregateId) {
-        const events = await this.prisma.event.findMany({
-            where: { aggregateId },
-            orderBy: { version: 'asc' },
-        });
-        return events.map(this.mapTodomainEvent);
+        const result = await this.drizzle.db
+            .select()
+            .from(schema_1.events)
+            .where((0, drizzle_orm_1.eq)(schema_1.events.aggregateId, aggregateId))
+            .orderBy(schema_1.events.version);
+        return result.map(this.mapToDomainEvent);
     }
     async getEventsByType(eventType, options) {
-        const events = await this.prisma.event.findMany({
-            where: {
-                eventType,
-                ...(options?.since && { createdAt: { gte: options.since } }),
-            },
-            orderBy: { createdAt: 'asc' },
-            take: options?.limit,
-        });
-        return events.map(this.mapTodomainEvent);
+        const conditions = [(0, drizzle_orm_1.eq)(schema_1.events.eventType, eventType)];
+        if (options?.since) {
+            conditions.push((0, drizzle_orm_1.gte)(schema_1.events.createdAt, options.since));
+        }
+        let query = this.drizzle.db
+            .select()
+            .from(schema_1.events)
+            .where((0, drizzle_orm_1.and)(...conditions))
+            .orderBy(schema_1.events.createdAt);
+        if (options?.limit) {
+            query = query.limit(options.limit);
+        }
+        const result = await query;
+        return result.map(this.mapToDomainEvent);
     }
     async getEventsByAggregateType(aggregateType, options) {
-        const events = await this.prisma.event.findMany({
-            where: {
-                aggregateType,
-                ...(options?.since && { createdAt: { gte: options.since } }),
-            },
-            orderBy: { createdAt: 'asc' },
-            take: options?.limit,
-        });
-        return events.map(this.mapTodomainEvent);
+        const conditions = [(0, drizzle_orm_1.eq)(schema_1.events.aggregateType, aggregateType)];
+        if (options?.since) {
+            conditions.push((0, drizzle_orm_1.gte)(schema_1.events.createdAt, options.since));
+        }
+        let query = this.drizzle.db
+            .select()
+            .from(schema_1.events)
+            .where((0, drizzle_orm_1.and)(...conditions))
+            .orderBy(schema_1.events.createdAt);
+        if (options?.limit) {
+            query = query.limit(options.limit);
+        }
+        const result = await query;
+        return result.map(this.mapToDomainEvent);
     }
     async getAllEvents(options) {
-        const events = await this.prisma.event.findMany({
-            where: options?.since ? { createdAt: { gte: options.since } } : undefined,
-            orderBy: { createdAt: 'asc' },
-            take: options?.limit ?? 100,
-        });
-        return events.map(this.mapTodomainEvent);
+        const conditions = options?.since ? [(0, drizzle_orm_1.gte)(schema_1.events.createdAt, options.since)] : [];
+        const result = conditions.length > 0
+            ? await this.drizzle.db
+                .select()
+                .from(schema_1.events)
+                .where((0, drizzle_orm_1.and)(...conditions))
+                .orderBy(schema_1.events.createdAt)
+                .limit(options?.limit ?? 100)
+            : await this.drizzle.db
+                .select()
+                .from(schema_1.events)
+                .orderBy(schema_1.events.createdAt)
+                .limit(options?.limit ?? 100);
+        return result.map(this.mapToDomainEvent);
     }
     async getAggregateVersion(aggregateId) {
-        const lastEvent = await this.prisma.event.findFirst({
-            where: { aggregateId },
-            orderBy: { version: 'desc' },
-        });
+        const [lastEvent] = await this.drizzle.db
+            .select({ version: schema_1.events.version })
+            .from(schema_1.events)
+            .where((0, drizzle_orm_1.eq)(schema_1.events.aggregateId, aggregateId))
+            .orderBy((0, drizzle_orm_1.desc)(schema_1.events.version))
+            .limit(1);
         return lastEvent?.version ?? 0;
     }
-    mapTodomainEvent(event) {
+    mapToDomainEvent(event) {
         return {
             eventId: event.id,
             eventType: event.eventType,
@@ -112,6 +135,6 @@ let EventStoreService = EventStoreService_1 = class EventStoreService {
 exports.EventStoreService = EventStoreService;
 exports.EventStoreService = EventStoreService = EventStoreService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [drizzle_service_1.DrizzleService])
 ], EventStoreService);
 //# sourceMappingURL=event-store.service.js.map

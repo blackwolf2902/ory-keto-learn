@@ -1,26 +1,18 @@
 import { Controller, Get, Post, Delete, Body, Param } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiHeader } from '@nestjs/swagger';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { AddMemberDto } from './dto/add-member.dto';
 import { SkipPermissionCheck } from '../common/decorators/permission.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { KratosIdentity } from '../common/decorators/current-user.decorator';
 
 /**
  * GroupsController - Team Management
  * 
- * LEARNING NOTE: Groups as Subject Sets
- * 
- * Groups in Keto are a powerful abstraction for team-based access.
- * Instead of managing individual user permissions, you:
- * 
- * 1. Create groups representing teams/roles
- * 2. Add users as members
- * 3. Grant permissions to group members
- * 
- * The "magic" is in SUBJECT SETS:
- *   @Group:engineering#member
- * 
- * This means "anyone who is a member of the engineering group"
+ * USER SESSION ISOLATION:
+ * - Groups are scoped to their creator
+ * - Each user sees only groups they created
  */
 @ApiTags('Groups')
 @Controller('groups')
@@ -30,15 +22,22 @@ export class GroupsController {
     @Post()
     @SkipPermissionCheck()
     @ApiOperation({ summary: 'Create a new group' })
-    create(@Body() createGroupDto: CreateGroupDto) {
-        return this.groupsService.create(createGroupDto);
+    create(
+        @Body() createGroupDto: CreateGroupDto,
+        @CurrentUser() user: KratosIdentity,
+    ) {
+        return this.groupsService.create(createGroupDto, user.id);
     }
 
+    /**
+     * Get all groups for the current user
+     * SESSION ISOLATION: Returns only groups created by the authenticated user
+     */
     @Get()
     @SkipPermissionCheck()
-    @ApiOperation({ summary: 'Get all groups' })
-    findAll() {
-        return this.groupsService.findAll();
+    @ApiOperation({ summary: 'Get all groups (filtered by current user)' })
+    findAll(@CurrentUser() user: KratosIdentity) {
+        return this.groupsService.findAllByCreator(user.id);
     }
 
     @Get(':id')
@@ -54,7 +53,6 @@ export class GroupsController {
         summary: 'Add a member to a group',
         description: 'Creates a Group:{id}#member@User:{userId} relation in Keto'
     })
-    @ApiHeader({ name: 'x-user-id', description: 'Current user ID', required: true })
     addMember(@Param('id') id: string, @Body() addMemberDto: AddMemberDto) {
         return this.groupsService.addMember(id, addMemberDto);
     }
@@ -62,7 +60,6 @@ export class GroupsController {
     @Delete(':groupId/members/:userId')
     @SkipPermissionCheck()
     @ApiOperation({ summary: 'Remove a member from a group' })
-    @ApiHeader({ name: 'x-user-id', description: 'Current user ID', required: true })
     removeMember(
         @Param('groupId') groupId: string,
         @Param('userId') userId: string,

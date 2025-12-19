@@ -20,34 +20,35 @@ const create_folder_dto_1 = require("./dto/create-folder.dto");
 const share_folder_dto_1 = require("./dto/share-folder.dto");
 const keto_guard_1 = require("../common/guards/keto.guard");
 const permission_decorator_1 = require("../common/decorators/permission.decorator");
+const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 let FoldersController = class FoldersController {
     foldersService;
     constructor(foldersService) {
         this.foldersService = foldersService;
     }
-    create(createFolderDto, userId) {
-        return this.foldersService.create(createFolderDto, userId);
+    create(createFolderDto, user) {
+        return this.foldersService.create(createFolderDto, user.id);
     }
-    findAll() {
-        return this.foldersService.findAll();
+    findAll(user) {
+        return this.foldersService.findAllByOwner(user.id);
     }
     findOne(id) {
         return this.foldersService.findOne(id);
     }
-    share(id, shareDto, userId) {
-        return this.foldersService.share(id, shareDto, userId);
+    share(id, shareDto, user) {
+        return this.foldersService.share(id, shareDto, user.id);
     }
-    unshare(id, shareDto, userId) {
-        return this.foldersService.unshare(id, shareDto, userId);
+    unshare(id, shareDto, user) {
+        return this.foldersService.unshare(id, shareDto, user.id);
     }
     getAccessList(id) {
         return this.foldersService.getAccessList(id);
     }
-    checkAccess(id, relation, userId) {
-        return this.foldersService.checkAccess(id, userId, relation);
+    checkAccess(id, relation, user) {
+        return this.foldersService.checkAccess(id, user.id, relation);
     }
-    remove(id) {
-        return this.foldersService.remove(id);
+    remove(id, user) {
+        return this.foldersService.remove(id, user.id);
     }
 };
 exports.FoldersController = FoldersController;
@@ -59,17 +60,18 @@ __decorate([
         description: 'Creates folder and assigns owner. If parent specified, creates inheritance relation.'
     }),
     __param(0, (0, common_1.Body)()),
-    __param(1, (0, common_1.Headers)('x-user-id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [create_folder_dto_1.CreateFolderDto, String]),
+    __metadata("design:paramtypes", [create_folder_dto_1.CreateFolderDto, Object]),
     __metadata("design:returntype", void 0)
 ], FoldersController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)(),
     (0, permission_decorator_1.SkipPermissionCheck)(),
-    (0, swagger_1.ApiOperation)({ summary: 'Get all folders' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Get all folders (filtered by current user)' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], FoldersController.prototype, "findAll", null);
 __decorate([
@@ -96,9 +98,9 @@ __decorate([
     (0, swagger_1.ApiBody)({ type: share_folder_dto_1.ShareFolderDto }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
-    __param(2, (0, common_1.Headers)('x-user-id')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, share_folder_dto_1.ShareFolderDto, String]),
+    __metadata("design:paramtypes", [String, share_folder_dto_1.ShareFolderDto, Object]),
     __metadata("design:returntype", void 0)
 ], FoldersController.prototype, "share", null);
 __decorate([
@@ -107,9 +109,9 @@ __decorate([
     (0, swagger_1.ApiOperation)({ summary: 'Revoke access from a user or group' }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
-    __param(2, (0, common_1.Headers)('x-user-id')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, share_folder_dto_1.ShareFolderDto, String]),
+    __metadata("design:paramtypes", [String, share_folder_dto_1.ShareFolderDto, Object]),
     __metadata("design:returntype", void 0)
 ], FoldersController.prototype, "unshare", null);
 __decorate([
@@ -138,9 +140,9 @@ __decorate([
     }),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Param)('relation')),
-    __param(2, (0, common_1.Headers)('x-user-id')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:paramtypes", [String, String, Object]),
     __metadata("design:returntype", void 0)
 ], FoldersController.prototype, "checkAccess", null);
 __decorate([
@@ -153,8 +155,9 @@ __decorate([
     }),
     (0, swagger_1.ApiOperation)({ summary: 'Delete a folder' }),
     __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], FoldersController.prototype, "remove", null);
 exports.FoldersController = FoldersController = __decorate([

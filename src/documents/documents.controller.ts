@@ -6,7 +6,7 @@ import {
     Delete,
     Body,
     Param,
-    Headers,
+    Query,
     UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
@@ -16,26 +16,18 @@ import { UpdateDocumentDto } from './dto/update-document.dto';
 import { ShareDocumentDto } from './dto/share-document.dto';
 import { KetoGuard } from '../common/guards/keto.guard';
 import { RequirePermission, SkipPermissionCheck } from '../common/decorators/permission.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import type { KratosIdentity } from '../common/decorators/current-user.decorator';
 
 /**
  * ============================================
  * DOCUMENTS CONTROLLER - Protected Resource API
  * ============================================
  * 
- * This controller demonstrates DECLARATIVE AUTHORIZATION
- * using NestJS guards and custom decorators.
- * 
- * KEY LEARNING POINTS:
- * 
- * 1. @UseGuards(KetoGuard) - Enables permission checking
- * 2. @RequirePermission() - Specifies required permission
- * 3. @SkipPermissionCheck() - Bypasses for public endpoints
- * 
- * The guard automatically:
- * - Extracts user ID from x-user-id header
- * - Extracts object ID from route params
- * - Calls Keto to check permission
- * - Throws ForbiddenException if denied
+ * USER SESSION ISOLATION:
+ * - All document operations are scoped to the authenticated user
+ * - @CurrentUser() decorator extracts user from Kratos session
+ * - findAll() returns only documents owned by the current user
  */
 @ApiTags('Documents')
 @Controller('documents')
@@ -45,7 +37,7 @@ export class DocumentsController {
 
     /**
      * Create a new document
-     * Anyone authenticated can create documents (they become owner)
+     * The current authenticated user becomes the owner
      */
     @Post()
     @SkipPermissionCheck()
@@ -55,29 +47,25 @@ export class DocumentsController {
     })
     create(
         @Body() createDocumentDto: CreateDocumentDto,
-        @Headers('x-user-id') userId: string,
+        @CurrentUser() user: KratosIdentity,
     ) {
-        return this.documentsService.create(createDocumentDto, userId);
+        return this.documentsService.create(createDocumentDto, user.id);
     }
 
     /**
-     * Get all documents
-     * No permission check - returns all documents
-     * (In production, you'd filter by user's accessible documents)
+     * Get all documents for the current user
+     * SESSION ISOLATION: Returns only documents owned by the authenticated user
      */
     @Get()
     @SkipPermissionCheck()
-    @ApiOperation({ summary: 'Get all documents' })
-    findAll() {
-        return this.documentsService.findAll();
+    @ApiOperation({ summary: 'Get all documents (filtered by current user)' })
+    findAll(@CurrentUser() user: KratosIdentity) {
+        return this.documentsService.findAllByOwner(user.id);
     }
 
     /**
      * Get a specific document
-     * 
      * PERMISSION CHECK: Document#view
-     * User must have view permission on the document.
-     * This includes: owner, editor, viewer, or folder access.
      */
     @Get(':id')
     @RequirePermission({
@@ -96,9 +84,7 @@ export class DocumentsController {
 
     /**
      * Update a document
-     * 
      * PERMISSION CHECK: Document#edit
-     * Only owners and editors can update.
      */
     @Put(':id')
     @RequirePermission({
@@ -111,13 +97,16 @@ export class DocumentsController {
         summary: 'Update a document',
         description: 'Requires edit permission (owner/editor)'
     })
-    update(@Param('id') id: string, @Body() updateDocumentDto: UpdateDocumentDto) {
-        return this.documentsService.update(id, updateDocumentDto);
+    update(
+        @Param('id') id: string,
+        @Body() updateDocumentDto: UpdateDocumentDto,
+        @CurrentUser() user: KratosIdentity,
+    ) {
+        return this.documentsService.update(id, updateDocumentDto, user.id);
     }
 
     /**
      * Delete a document
-     * 
      * PERMISSION CHECK: Document#delete (owner only)
      */
     @Delete(':id')
@@ -131,14 +120,13 @@ export class DocumentsController {
         summary: 'Delete a document',
         description: 'Requires delete permission (owner only)'
     })
-    remove(@Param('id') id: string) {
-        return this.documentsService.remove(id);
+    remove(@Param('id') id: string, @CurrentUser() user: KratosIdentity) {
+        return this.documentsService.remove(id, user.id);
     }
 
     /**
      * Share a document
-     * 
-     * Note: Permission check is done in service (must be owner to share)
+     * Permission check is done in service (must be owner to share)
      */
     @Post(':id/share')
     @SkipPermissionCheck()
@@ -150,9 +138,9 @@ export class DocumentsController {
     share(
         @Param('id') id: string,
         @Body() shareDto: ShareDocumentDto,
-        @Headers('x-user-id') userId: string,
+        @CurrentUser() user: KratosIdentity,
     ) {
-        return this.documentsService.share(id, shareDto, userId);
+        return this.documentsService.share(id, shareDto, user.id);
     }
 
     /**
@@ -164,15 +152,13 @@ export class DocumentsController {
     unshare(
         @Param('id') id: string,
         @Body() shareDto: ShareDocumentDto,
-        @Headers('x-user-id') userId: string,
+        @CurrentUser() user: KratosIdentity,
     ) {
-        return this.documentsService.unshare(id, shareDto, userId);
+        return this.documentsService.unshare(id, shareDto, user.id);
     }
 
     /**
      * Get access list for a document
-     * 
-     * LEARNING: Uses Keto's expand API to list all subjects
      */
     @Get(':id/access')
     @RequirePermission({
@@ -190,21 +176,26 @@ export class DocumentsController {
     }
 
     /**
-     * Check if current user has specific permission
-     * 
-     * LEARNING: Direct permission check endpoint for testing
+     * Check if a specific user has a permission on a document
+     * PLAYGROUND: Allows checking any user's permission, not just the logged-in user
      */
     @Get(':id/check/:relation')
     @SkipPermissionCheck()
     @ApiOperation({
-        summary: 'Check if user has specific permission',
-        description: 'Useful for UI to show/hide actions'
+        summary: 'Check if a user has specific permission',
+        description: 'For Permission Playground - check any user\'s access'
     })
     checkAccess(
         @Param('id') id: string,
         @Param('relation') relation: string,
-        @Headers('x-user-id') userId: string,
+        @Query('userId') userId?: string,
+        @CurrentUser() currentUser?: KratosIdentity,
     ) {
-        return this.documentsService.checkAccess(id, userId, relation);
+        // Use provided userId for playground, or fall back to current user
+        const userIdToCheck = userId || currentUser?.id;
+        if (!userIdToCheck) {
+            return { allowed: false, check: 'No user specified', error: 'Missing userId' };
+        }
+        return this.documentsService.checkAccess(id, userIdToCheck, relation);
     }
 }

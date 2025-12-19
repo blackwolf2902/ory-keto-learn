@@ -1,132 +1,172 @@
-import { PrismaService } from '../prisma.service';
+import { DrizzleService } from '../drizzle/drizzle.service';
 import { KetoService } from '../keto/keto.service';
 import { EventPublisherService } from '../events/event-publisher.service';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { ShareFolderDto } from './dto/share-folder.dto';
 export declare class FoldersService {
-    private readonly prisma;
+    private readonly drizzle;
     private readonly ketoService;
     private readonly eventPublisher;
-    constructor(prisma: PrismaService, ketoService: KetoService, eventPublisher: EventPublisherService);
+    constructor(drizzle: DrizzleService, ketoService: KetoService, eventPublisher: EventPublisherService);
     create(createFolderDto: CreateFolderDto, userId: string): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string | null;
+        parentId: string | null;
+        ownerId: string;
+        parent: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string | null;
+            parentId: string | null;
+            ownerId: string;
+        } | null;
         owner: {
+            id: string;
             email: string;
             name: string;
-            id: string;
             createdAt: Date;
             updatedAt: Date;
         };
-        parent: {
-            description: string | null;
-            name: string;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            ownerId: string;
-            parentId: string | null;
-        } | null;
-    } & {
-        description: string | null;
-        name: string;
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        ownerId: string;
-        parentId: string | null;
-    }>;
+    } | undefined>;
     share(folderId: string, shareDto: ShareFolderDto, requesterId: string): Promise<{
         success: boolean;
         message: string;
         relation: string;
         note: string;
     }>;
-    findAll(): Promise<({
+    findAll(): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string | null;
+        parentId: string | null;
+        ownerId: string;
+        documents: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            ownerId: string;
+            title: string;
+            content: string | null;
+            folderId: string | null;
+        }[];
+        parent: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string | null;
+            parentId: string | null;
+            ownerId: string;
+        } | null;
+        children: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string | null;
+            parentId: string | null;
+            ownerId: string;
+        }[];
         owner: {
+            id: string;
             email: string;
             name: string;
-            id: string;
             createdAt: Date;
             updatedAt: Date;
         };
-        children: {
-            description: string | null;
-            name: string;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            ownerId: string;
-            parentId: string | null;
-        }[];
-        parent: {
-            description: string | null;
-            name: string;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            ownerId: string;
-            parentId: string | null;
-        } | null;
-        documents: {
-            title: string;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            content: string | null;
-            folderId: string | null;
-            ownerId: string;
-        }[];
-    } & {
-        description: string | null;
-        name: string;
+    }[]>;
+    findAllByOwner(ownerId: string): Promise<{
         id: string;
+        name: string;
         createdAt: Date;
         updatedAt: Date;
-        ownerId: string;
+        description: string | null;
         parentId: string | null;
-    })[]>;
+        ownerId: string;
+        documents: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            ownerId: string;
+            title: string;
+            content: string | null;
+            folderId: string | null;
+        }[];
+        parent: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string | null;
+            parentId: string | null;
+            ownerId: string;
+        } | null;
+        children: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string | null;
+            parentId: string | null;
+            ownerId: string;
+        }[];
+        owner: {
+            id: string;
+            email: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+        };
+    }[]>;
     findOne(id: string): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string | null;
+        parentId: string | null;
+        ownerId: string;
+        documents: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            ownerId: string;
+            title: string;
+            content: string | null;
+            folderId: string | null;
+        }[];
+        parent: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string | null;
+            parentId: string | null;
+            ownerId: string;
+        } | null;
+        children: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string | null;
+            parentId: string | null;
+            ownerId: string;
+        }[];
         owner: {
+            id: string;
             email: string;
             name: string;
-            id: string;
             createdAt: Date;
             updatedAt: Date;
         };
-        children: {
-            description: string | null;
-            name: string;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            ownerId: string;
-            parentId: string | null;
-        }[];
-        parent: {
-            description: string | null;
-            name: string;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            ownerId: string;
-            parentId: string | null;
-        } | null;
-        documents: {
-            title: string;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            content: string | null;
-            folderId: string | null;
-            ownerId: string;
-        }[];
-    } & {
-        description: string | null;
-        name: string;
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        ownerId: string;
-        parentId: string | null;
     }>;
     unshare(folderId: string, shareDto: ShareFolderDto, requesterId: string): Promise<{
         success: boolean;
@@ -142,7 +182,7 @@ export declare class FoldersService {
         allowed: boolean;
         check: string;
     }>;
-    remove(id: string): Promise<{
+    remove(id: string, userId?: string): Promise<{
         success: boolean;
     }>;
 }

@@ -2,13 +2,15 @@ import { Module, Global } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaService } from './prisma.service';
+import { KratosGuard } from './common/guards/kratos.guard';
+import { DrizzleService } from './drizzle/drizzle.service';
 import { KetoModule } from './keto/keto.module';
 import { UsersModule } from './users/users.module';
 import { GroupsModule } from './groups/groups.module';
 import { DocumentsModule } from './documents/documents.module';
 import { FoldersModule } from './folders/folders.module';
 import { EventsModule } from './events/events.module';
+import { KratosModule } from './kratos/kratos.module';
 
 /**
  * ============================================
@@ -18,16 +20,11 @@ import { EventsModule } from './events/events.module';
  * This is the root module that ties everything together:
  * 
  * - KetoModule: Provides KetoService globally
- * - PrismaService: Database access (global)
+ * - DrizzleService: Database access (global)
  * - UsersModule: User management
  * - GroupsModule: Team-based access (Subject Sets)
  * - DocumentsModule: Protected documents
  * - FoldersModule: Hierarchical permissions
- * 
- * LEARNING: Module Architecture
- * NestJS modules provide good separation of concerns.
- * Each module handles its own domain while sharing
- * common services like Keto and Prisma.
  */
 @Global()
 @Module({
@@ -38,12 +35,17 @@ import { EventsModule } from './events/events.module';
     GroupsModule,
     DocumentsModule,
     FoldersModule,
+    KratosModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    PrismaService,
+    DrizzleService,
+    {
+      provide: APP_GUARD,
+      useClass: KratosGuard,
+    },
   ],
-  exports: [PrismaService],
+  exports: [DrizzleService],
 })
 export class AppModule { }

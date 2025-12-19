@@ -118,16 +118,16 @@ export class KetoGuard implements CanActivate {
      * In production, integrate with your auth system.
      */
     private extractUserId(request: Request): string | null {
-        // Option 1: Header (for development/testing)
+        // Option 1: From user object (set by KratosGuard)
+        const user = (request as any).user;
+        if (user?.id) {
+            return user.id;
+        }
+
+        // Option 2: Header (for development/legacy support)
         const headerUserId = request.headers['x-user-id'];
         if (headerUserId) {
             return Array.isArray(headerUserId) ? headerUserId[0] : headerUserId;
-        }
-
-        // Option 2: From user object (set by auth middleware)
-        const user = (request as unknown as { user?: { id?: string } }).user;
-        if (user?.id) {
-            return user.id;
         }
 
         return null;

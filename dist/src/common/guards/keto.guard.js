@@ -52,13 +52,13 @@ let KetoGuard = KetoGuard_1 = class KetoGuard {
         return true;
     }
     extractUserId(request) {
-        const headerUserId = request.headers['x-user-id'];
-        if (headerUserId) {
-            return Array.isArray(headerUserId) ? headerUserId[0] : headerUserId;
-        }
         const user = request.user;
         if (user?.id) {
             return user.id;
+        }
+        const headerUserId = request.headers['x-user-id'];
+        if (headerUserId) {
+            return Array.isArray(headerUserId) ? headerUserId[0] : headerUserId;
         }
         return null;
     }
