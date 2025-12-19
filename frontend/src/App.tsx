@@ -1,16 +1,38 @@
 import { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import {
+  LayoutDashboard,
+  User,
+  Users,
+  FileText,
+  FlaskConical,
+  Lock,
+  LogOut,
+  Package,
+  Search,
+  Link,
+  CheckCircle,
+  XCircle,
+  GraduationCap,
+  Lightbulb,
+} from 'lucide-react';
 import './index.css';
-import { api, type User, type Group, type Document, type Folder } from './api';
+import { api, type User as UserType, type Group, type Document, type Folder as FolderType } from './api';
+import { AuthProvider, useAuth } from './AuthContext';
+import { AuthRoute } from './components/AuthRoute';
+import { Login } from './pages/Login';
+import { Registration } from './pages/Registration';
 
-function App() {
+function MainApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'groups' | 'documents' | 'folders' | 'playground'>('dashboard');
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserType[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [folders, setFolders] = useState<FolderType[]>([]);
+  const [currentUser, setCurrentUser] = useState<UserType | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [_loading, setLoading] = useState(true);
+  const [_dataLoading, setDataLoading] = useState(true);
+  const { session, loading: authLoading, logout } = useAuth();
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -18,7 +40,7 @@ function App() {
   };
 
   const fetchData = async () => {
-    setLoading(true);
+    setDataLoading(true);
     try {
       const [usersData, groupsData, docsData, foldersData] = await Promise.all([
         api.getUsers(),
@@ -26,30 +48,49 @@ function App() {
         api.getDocuments(),
         api.getFolders(),
       ]);
-      setUsers(usersData);
-      setGroups(groupsData);
-      setDocuments(docsData);
-      setFolders(foldersData);
-      if (!currentUser && usersData.length > 0) {
-        setCurrentUser(usersData[0]);
+
+      const validatedUsers = Array.isArray(usersData) ? usersData : [];
+      const validatedGroups = Array.isArray(groupsData) ? groupsData : [];
+      const validatedDocs = Array.isArray(docsData) ? docsData : [];
+      const validatedFolders = Array.isArray(foldersData) ? foldersData : [];
+
+      setUsers(validatedUsers);
+      setGroups(validatedGroups);
+      setDocuments(validatedDocs);
+      setFolders(validatedFolders);
+
+      if (session?.identity) {
+        const identityId = session.identity.id;
+        const matched = validatedUsers.find(u => u.id === identityId);
+        const traits = (session.identity.traits as any) || {};
+        const email = traits.email || 'no-email@example.com';
+        const name = traits.name || email.split('@')[0] || 'User';
+
+        setCurrentUser(matched || {
+          id: identityId,
+          email,
+          name,
+          createdAt: session.identity.created_at || new Date().toISOString(),
+          updatedAt: session.identity.updated_at || new Date().toISOString()
+        } as any);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
     }
-    setLoading(false);
+    setDataLoading(false);
   };
 
   useEffect(() => {
+    if (authLoading) return;
     fetchData();
-  }, []);
+  }, [session, authLoading]);
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'users', label: 'Users', icon: '👤' },
-    { id: 'groups', label: 'Groups', icon: '👥' },
-    { id: 'documents', label: 'Documents', icon: '📄' },
-    // { id: 'folders', label: 'Folders', icon: '📁' },  // Hidden for now
-    { id: 'playground', label: 'Permission Playground', icon: '🧪' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'users', label: 'Users', icon: User },
+    { id: 'groups', label: 'Groups', icon: Users },
+    { id: 'documents', label: 'Documents', icon: FileText },
+    { id: 'playground', label: 'Playground', icon: FlaskConical },
   ] as const;
 
   return (
@@ -57,7 +98,9 @@ function App() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <div className="logo-icon">🔐</div>
+          <div className="logo-icon">
+            <Lock size={20} />
+          </div>
           <h1>Keto Learn</h1>
         </div>
 
@@ -69,41 +112,37 @@ function App() {
                 className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
                 onClick={() => setActiveTab(item.id)}
               >
-                <span className="nav-icon">{item.icon}</span>
+                <span className="nav-icon">
+                  <item.icon size={20} />
+                </span>
                 {item.label}
               </li>
             ))}
           </ul>
         </nav>
 
-        {/* Current User Selector */}
-        <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
-          <label className="form-label">Acting as:</label>
-          <select
-            className="form-select"
-            value={currentUser?.id || ''}
-            onChange={(e) => setCurrentUser(users.find(u => u.id === e.target.value) || null)}
-          >
-            <option value="">Select a user...</option>
-            {users.map(user => (
-              <option key={user.id} value={user.id}>{user.name}</option>
-            ))}
-          </select>
-          {currentUser && (
-            <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              ID: <code style={{ fontSize: '0.7rem' }}>{currentUser.id.slice(0, 8)}...</code>
+        <div className="sidebar-footer">
+          <div className="user-profile">
+            <div className="user-avatar">
+              {currentUser?.name?.charAt(0).toUpperCase() || '?'}
             </div>
-          )}
+            <div className="user-info">
+              <span className="user-name">{currentUser?.name || 'Guest'}</span>
+              <span className="user-id">ID: {currentUser?.id ? `${currentUser.id.slice(0, 8)}...` : 'N/A'}</span>
+            </div>
+          </div>
+          <button className="btn btn-outline btn-sm" style={{ width: '100%', marginTop: '0.5rem' }} onClick={logout}>
+            <LogOut size={16} /> Logout
+          </button>
         </div>
       </aside>
 
       {/* Main Content */}
       <main className="main-content">
-        {activeTab === 'dashboard' && <DashboardView users={users} groups={groups} documents={documents} folders={folders} />}
+        {activeTab === 'dashboard' && <DashboardView users={users} groups={groups} documents={documents} />}
         {activeTab === 'users' && <UsersView users={users} onRefresh={fetchData} showToast={showToast} />}
         {activeTab === 'groups' && <GroupsView groups={groups} users={users} currentUser={currentUser} onRefresh={fetchData} showToast={showToast} />}
         {activeTab === 'documents' && <DocumentsView documents={documents} users={users} groups={groups} folders={folders} currentUser={currentUser} onRefresh={fetchData} showToast={showToast} />}
-        {/* {activeTab === 'folders' && <FoldersView folders={folders} users={users} groups={groups} currentUser={currentUser} onRefresh={fetchData} showToast={showToast} />} */}
         {activeTab === 'playground' && <PlaygroundView documents={documents} users={users} currentUser={currentUser} />}
       </main>
 
@@ -117,12 +156,28 @@ function App() {
   );
 }
 
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/registration" element={<Registration />} />
+          <Route element={<AuthRoute />}>
+            <Route path="/*" element={<MainApp />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
+
 // Dashboard View
-function DashboardView({ users, groups, documents, folders }: { users: User[]; groups: Group[]; documents: Document[]; folders: Folder[] }) {
+function DashboardView({ users, groups, documents }: { users: UserType[]; groups: Group[]; documents: Document[] }) {
   return (
     <div>
       <div className="page-header">
-        <h2>🎓 Ory Keto Learning Dashboard</h2>
+        <h2><GraduationCap size={28} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Ory Keto Learning Dashboard</h2>
         <p>Learn Relationship-Based Access Control (ReBAC) through interactive examples</p>
       </div>
 
@@ -139,15 +194,11 @@ function DashboardView({ users, groups, documents, folders }: { users: User[]; g
           <h3 style={{ fontSize: '2rem', color: 'var(--accent-green)' }}>{documents.length}</h3>
           <p style={{ color: 'var(--text-secondary)' }}>Documents</p>
         </div>
-        {/* <div className="card">
-          <h3 style={{ fontSize: '2rem', color: 'var(--accent-orange)' }}>{folders.length}</h3>
-          <p style={{ color: 'var(--text-secondary)' }}>Folders</p>
-        </div> */}
       </div>
 
       <div className="grid grid-2">
         <div className="concept-card">
-          <h4>📦 Relation Tuple</h4>
+          <h4><Package size={18} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Relation Tuple</h4>
           <p>The core data structure in Keto:</p>
           <div className="relation-tuple" style={{ marginTop: '0.5rem' }}>
             <span className="tuple-namespace">Document</span>:
@@ -158,7 +209,7 @@ function DashboardView({ users, groups, documents, folders }: { users: User[]; g
         </div>
 
         <div className="concept-card">
-          <h4>🔍 Permission Check</h4>
+          <h4><Search size={18} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Permission Check</h4>
           <p>Ask Keto questions like:</p>
           <code style={{ display: 'block', marginTop: '0.5rem' }}>
             "Does User:alice have view permission on Document:readme.md?"
@@ -166,7 +217,7 @@ function DashboardView({ users, groups, documents, folders }: { users: User[]; g
         </div>
 
         <div className="concept-card">
-          <h4>👥 Subject Sets</h4>
+          <h4><Users size={18} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Subject Sets</h4>
           <p>Grant permissions to groups:</p>
           <div className="relation-tuple" style={{ marginTop: '0.5rem' }}>
             <span className="tuple-namespace">Document</span>:spec#
@@ -174,21 +225,13 @@ function DashboardView({ users, groups, documents, folders }: { users: User[]; g
             <span className="tuple-subject">Group:engineers#member</span>
           </div>
         </div>
-
-        {/* <div className="concept-card">
-          <h4>📁 Inheritance</h4>
-          <p>Permissions flow through hierarchy:</p>
-          <code style={{ display: 'block', marginTop: '0.5rem' }}>
-            Folder access → Document access
-          </code>
-        </div> */}
       </div>
     </div>
   );
 }
 
 // Users View
-function UsersView({ users, onRefresh, showToast }: { users: User[]; onRefresh: () => void; showToast: (msg: string, type?: 'success' | 'error') => void }) {
+function UsersView({ users, onRefresh, showToast }: { users: UserType[]; onRefresh: () => void; showToast: (msg: string, type?: 'success' | 'error') => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [creating, setCreating] = useState(false);
@@ -211,7 +254,7 @@ function UsersView({ users, onRefresh, showToast }: { users: User[]; onRefresh: 
   return (
     <div>
       <div className="page-header">
-        <h2>👤 Users</h2>
+        <h2><User size={28} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Users</h2>
         <p>Users are the subjects in permission checks</p>
       </div>
 
@@ -240,7 +283,7 @@ function UsersView({ users, onRefresh, showToast }: { users: User[]; onRefresh: 
         </div>
         {users.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">👤</div>
+            <div className="empty-state-icon"><User size={48} /></div>
             <p>No users yet. Create your first user above!</p>
           </div>
         ) : (
@@ -269,7 +312,7 @@ function UsersView({ users, onRefresh, showToast }: { users: User[]; onRefresh: 
 }
 
 // Groups View
-function GroupsView({ groups, users, currentUser, onRefresh, showToast }: { groups: Group[]; users: User[]; currentUser: User | null; onRefresh: () => void; showToast: (msg: string, type?: 'success' | 'error') => void }) {
+function GroupsView({ groups, users, currentUser, onRefresh, showToast }: { groups: Group[]; users: UserType[]; currentUser: UserType | null; onRefresh: () => void; showToast: (msg: string, type?: 'success' | 'error') => void }) {
   const [name, setName] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [memberUserId, setMemberUserId] = useState('');
@@ -297,12 +340,12 @@ function GroupsView({ groups, users, currentUser, onRefresh, showToast }: { grou
   return (
     <div>
       <div className="page-header">
-        <h2>👥 Groups</h2>
+        <h2><Users size={28} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Groups</h2>
         <p>Groups enable team-based access using Subject Sets</p>
       </div>
 
       <div className="concept-card">
-        <h4>💡 Concept: Subject Sets</h4>
+        <h4><Lightbulb size={18} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Concept: Subject Sets</h4>
         <p>When you add a member to a group, a relation is created in Keto:</p>
         <div className="relation-tuple" style={{ marginTop: '0.5rem' }}>
           <span className="tuple-namespace">Group</span>:
@@ -373,7 +416,7 @@ function GroupsView({ groups, users, currentUser, onRefresh, showToast }: { grou
 }
 
 // Documents View
-function DocumentsView({ documents, users, groups, folders, currentUser, onRefresh, showToast }: { documents: Document[]; users: User[]; groups: Group[]; folders: Folder[]; currentUser: User | null; onRefresh: () => void; showToast: (msg: string, type?: 'success' | 'error') => void }) {
+function DocumentsView({ documents, users, groups, folders, currentUser, onRefresh, showToast }: { documents: Document[]; users: UserType[]; groups: Group[]; folders: FolderType[]; currentUser: UserType | null; onRefresh: () => void; showToast: (msg: string, type?: 'success' | 'error') => void }) {
   const [title, setTitle] = useState('');
   const [folderId, setFolderId] = useState('');
   const [shareDocId, setShareDocId] = useState('');
@@ -410,12 +453,12 @@ function DocumentsView({ documents, users, groups, folders, currentUser, onRefre
   return (
     <div>
       <div className="page-header">
-        <h2>📄 Documents</h2>
+        <h2><FileText size={28} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Documents</h2>
         <p>Documents are protected resources with permission checks</p>
       </div>
 
       <div className="concept-card">
-        <h4>💡 Concept: Owner & Sharing</h4>
+        <h4><Lightbulb size={18} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Concept: Owner & Sharing</h4>
         <p>When you create a document, you become the owner. Only owners can share.</p>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
           <div className="relation-tuple">
@@ -432,7 +475,7 @@ function DocumentsView({ documents, users, groups, folders, currentUser, onRefre
             <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Project Roadmap" />
           </div>
           <div className="form-group">
-            <label className="form-label">Folder (optional, for inheritance)</label>
+            <label className="form-label">Folder (optional)</label>
             <select className="form-select" value={folderId} onChange={e => setFolderId(e.target.value)}>
               <option value="">No folder</option>
               {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -470,7 +513,9 @@ function DocumentsView({ documents, users, groups, folders, currentUser, onRefre
               <option value="editor">Editor (read + write)</option>
             </select>
           </div>
-          <button className="btn btn-success" onClick={handleShare} disabled={!currentUser}>🔗 Share</button>
+          <button className="btn btn-success" onClick={handleShare} disabled={!currentUser}>
+            <Link size={16} /> Share
+          </button>
         </div>
       </div>
 
@@ -478,7 +523,7 @@ function DocumentsView({ documents, users, groups, folders, currentUser, onRefre
         <div className="card-header"><span className="card-title">All Documents ({documents.length})</span></div>
         {documents.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">📄</div>
+            <div className="empty-state-icon"><FileText size={48} /></div>
             <p>No documents yet. Create one above!</p>
           </div>
         ) : (
@@ -500,160 +545,8 @@ function DocumentsView({ documents, users, groups, folders, currentUser, onRefre
   );
 }
 
-// Folders View
-function FoldersView({ folders, users, groups, currentUser, onRefresh, showToast }: { folders: Folder[]; users: User[]; groups: Group[]; currentUser: User | null; onRefresh: () => void; showToast: (msg: string, type?: 'success' | 'error') => void }) {
-  const [name, setName] = useState('');
-  const [parentId, setParentId] = useState('');
-  const [shareFolderId, setShareFolderId] = useState('');
-  const [shareUserId, setShareUserId] = useState('');
-  const [shareGroupId, setShareGroupId] = useState('');
-  const [shareRelation, setShareRelation] = useState<'viewer' | 'editor'>('viewer');
-
-  const handleCreate = async () => {
-    if (!name || !currentUser) return;
-    await api.createFolder({ name, parentId: parentId || undefined }, currentUser.id);
-    setName('');
-    setParentId('');
-    showToast('Folder created!');
-    onRefresh();
-  };
-
-  const handleShare = async () => {
-    if (!shareFolderId || !currentUser || (!shareUserId && !shareGroupId)) return;
-    try {
-      await api.shareFolder(
-        shareFolderId,
-        { userId: shareUserId || undefined, groupId: shareGroupId || undefined, relation: shareRelation },
-        currentUser.id
-      );
-      showToast(`Folder shared as ${shareRelation}! All nested content is now accessible.`);
-      setShareFolderId('');
-      setShareUserId('');
-      setShareGroupId('');
-    } catch {
-      showToast('Failed to share (are you the owner?)', 'error');
-    }
-  };
-
-  const handleUnshare = async () => {
-    if (!shareFolderId || !currentUser || (!shareUserId && !shareGroupId)) return;
-    try {
-      await api.unshareFolder(
-        shareFolderId,
-        { userId: shareUserId || undefined, groupId: shareGroupId || undefined, relation: shareRelation },
-        currentUser.id
-      );
-      showToast('Access revoked!');
-      setShareFolderId('');
-      setShareUserId('');
-      setShareGroupId('');
-    } catch {
-      showToast('Failed to revoke access', 'error');
-    }
-  };
-
-  return (
-    <div>
-      <div className="page-header">
-        <h2>📁 Folders</h2>
-        <p>Folders enable hierarchical permission inheritance</p>
-      </div>
-
-      <div className="concept-card">
-        <h4>💡 Concept: Permission Inheritance</h4>
-        <p>When you share a folder, all documents inside inherit the permission!</p>
-        <div style={{ marginTop: '0.5rem', fontFamily: 'monospace', color: 'var(--accent-cyan)' }}>
-          /projects (shared with Bob) → /projects/spec.md (Bob can access!)
-        </div>
-      </div>
-
-      <div className="grid grid-2">
-        <div className="card">
-          <div className="card-header"><span className="card-title">Create Folder</span></div>
-          <div className="form-group">
-            <label className="form-label">Name</label>
-            <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Projects" />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Parent Folder (optional)</label>
-            <select className="form-select" value={parentId} onChange={e => setParentId(e.target.value)}>
-              <option value="">Root (no parent)</option>
-              {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
-          </div>
-          <button className="btn btn-primary" onClick={handleCreate} disabled={!currentUser}>+ Create</button>
-        </div>
-
-        <div className="card">
-          <div className="card-header"><span className="card-title">Share Folder</span></div>
-          <div className="form-group">
-            <label className="form-label">Select Folder</label>
-            <select className="form-select" value={shareFolderId} onChange={e => setShareFolderId(e.target.value)}>
-              <option value="">Choose...</option>
-              {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Share with User OR Group</label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <select className="form-select" value={shareUserId} onChange={e => { setShareUserId(e.target.value); setShareGroupId(''); }}>
-                <option value="">User...</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-              <select className="form-select" value={shareGroupId} onChange={e => { setShareGroupId(e.target.value); setShareUserId(''); }}>
-                <option value="">Group...</option>
-                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Permission Level</label>
-            <select className="form-select" value={shareRelation} onChange={e => setShareRelation(e.target.value as 'viewer' | 'editor')}>
-              <option value="viewer">Viewer (read only)</option>
-              <option value="editor">Editor (read + write)</option>
-            </select>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-success" onClick={handleShare} disabled={!currentUser}>🔗 Share</button>
-            <button className="btn btn-danger" onClick={handleUnshare} disabled={!currentUser}>🚫 Revoke</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header"><span className="card-title">All Folders ({folders.length})</span></div>
-        {folders.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">📁</div>
-            <p>No folders yet. Create one above!</p>
-          </div>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Owner</th>
-                <th>Parent</th>
-              </tr>
-            </thead>
-            <tbody>
-              {folders.map(f => (
-                <tr key={f.id}>
-                  <td><span style={{ marginRight: '0.5rem' }}>📁</span><strong>{f.name}</strong></td>
-                  <td><span className="badge badge-owner">{users.find(u => u.id === f.ownerId)?.name || f.ownerId.slice(0, 8)}</span></td>
-                  <td>{folders.find(pf => pf.id === f.parentId)?.name || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // Permission Playground
-function PlaygroundView({ documents, users, currentUser: _currentUser }: { documents: Document[]; users: User[]; currentUser: User | null }) {
+function PlaygroundView({ documents, users, currentUser: _currentUser }: { documents: Document[]; users: UserType[]; currentUser: UserType | null }) {
   const [selectedDoc, setSelectedDoc] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
   const [relation, setRelation] = useState('view');
@@ -675,7 +568,7 @@ function PlaygroundView({ documents, users, currentUser: _currentUser }: { docum
   return (
     <div>
       <div className="page-header">
-        <h2>🧪 Permission Playground</h2>
+        <h2><FlaskConical size={28} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Permission Playground</h2>
         <p>Test permission checks in real-time against Ory Keto</p>
       </div>
 
@@ -705,7 +598,7 @@ function PlaygroundView({ documents, users, currentUser: _currentUser }: { docum
             </select>
           </div>
           <button className="btn btn-primary" onClick={handleCheck} disabled={checking}>
-            {checking ? 'Checking...' : '🔍 Check Permission'}
+            <Search size={16} /> {checking ? 'Checking...' : 'Check'}
           </button>
         </div>
 
@@ -715,20 +608,20 @@ function PlaygroundView({ documents, users, currentUser: _currentUser }: { docum
               Query: <code>{result.check}</code>
             </div>
             <div className={result.allowed ? 'status-allowed' : 'status-denied'} style={{ fontSize: '1.25rem' }}>
-              {result.allowed ? '✅ ALLOWED' : '❌ DENIED'}
+              {result.allowed ? <><CheckCircle size={24} /> ALLOWED</> : <><XCircle size={24} /> DENIED</>}
             </div>
           </div>
         )}
       </div>
 
       <div className="concept-card">
-        <h4>🎯 Try This Exercise</h4>
+        <h4><Lightbulb size={18} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Try This Exercise</h4>
         <ol style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
           <li>Create two users (Alice and Bob)</li>
           <li>As Alice, create a document</li>
-          <li>Check if Bob can view it → ❌ Denied</li>
+          <li>Check if Bob can view it → Denied</li>
           <li>Share the document with Bob as viewer</li>
-          <li>Check again → ✅ Allowed!</li>
+          <li>Check again → Allowed!</li>
         </ol>
       </div>
     </div>
